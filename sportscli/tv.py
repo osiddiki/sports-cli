@@ -42,6 +42,8 @@ FEATURED = [
     ('ESPN2', ('espn2', 'espn 2', 'espn2 usa')),
     ('FS1', ('fs1', 'fox sports 1', 'fox sports 1 usa')),
     ('TNT', ('tnt', 'tnt usa')),
+    ('NFL RedZone', ('nfl redzone', 'nfl redzone main', 'nfl red zone', 'redzone')),
+    ('NFL Network', ('nfl network',)),
 ]
 
 

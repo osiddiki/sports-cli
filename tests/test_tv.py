@@ -69,6 +69,17 @@ http://192.168.1.1:8080/live.m3u8
         self.assertEqual(channels[-1].name, "6'eren Denmark")
         self.assertFalse(channels[-1].featured)
 
+    def test_redzone_feeds_merge_into_one_featured_channel(self):
+        text = """#EXTM3U
+#EXTINF:-1,NFL RedZone
+https://cdn.example/rz1.m3u8
+#EXTINF:-1,NFL RedZone | Main Feed (FUTBOLX)
+https://cdn.example/rz2.m3u8
+"""
+        channels = tv.group(tv.iptv_channels(text, 'doms9'))
+        self.assertEqual([(c.name, c.featured, len(c.sources)) for c in channels], [('NFL RedZone', True, 2)])
+        self.assertTrue(tv.matches(channels[0], 'red zone'))
+
     def test_filter_matches_every_word(self):
         channel = tv.Channel('Fox News Channel')
         self.assertTrue(tv.matches(channel, 'fox news'))
