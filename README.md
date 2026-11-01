@@ -20,6 +20,8 @@ irm https://raw.githubusercontent.com/osiddiki/sports-cli/main/install.ps1 | iex
 
 Then open a new terminal window and type `sports`. On Ubuntu, if Terminal says `curl: command not found`, run `sudo apt install curl` first. On Windows, [Windows Terminal](https://aka.ms/terminal) shows the app best; it comes with Windows 11.
 
+**Prefer not to use a terminal?** Ask an AI coding assistant that can run commands on your computer (Claude Code, Codex, Cursor and others) to *"install Sports CLI from github.com/osiddiki/sports-cli and open it for me"*. The repository's `AGENTS.md` tells it how: it explains what it will install, asks before installing, leaves any password for you to type, and opens the app in a window for you.
+
 The installer lists what it will add and waits for Enter before changing anything. It installs only what is missing:
 
 - **mpv**, the video player.

@@ -2,6 +2,21 @@
 
 This repository is a Python terminal app for discovering and playing sports streams and replays, on macOS, Linux and Windows. Use Python 3.9 or newer. The app itself uses the standard library, plus `windows-curses` and `tzdata` on Windows; mpv is the default player. IINA is an optional macOS player and Celluloid is an optional Linux player. The PPV resolver is a separate Node.js 20+ checkout installed by `./setup.sh` into the ignored `resolver/` directory.
 
+## Setting it up for someone who doesn't use a terminal
+
+When a person asks you to install, run, update or fix Sports CLI for them, assume they have never used a terminal, GitHub or Git. They need no GitHub account. Do the work yourself, explain each step in one plain sentence, and leave them with the app open.
+
+1. **Explain, then ask once.** Tell them what will be installed and why, from the list in README's Install section: Sports CLI, plus whichever of mpv (the video player), Python and, on a Mac, Homebrew are missing. Check with `command -v mpv python3 brew`. Ask before installing. Their yes lets you pass `--yes` (`-Yes` on Windows).
+2. **Install.** On macOS or Linux, run `curl -fsSL https://raw.githubusercontent.com/osiddiki/sports-cli/main/install.sh | sh -s -- --yes`. On Windows, run `irm https://raw.githubusercontent.com/osiddiki/sports-cli/main/install.ps1 | iex` in PowerShell. Add PPV sources (`--ppv`) or the ad detector (`--ads`) only when they ask for them.
+3. **Passwords are theirs to type.** Homebrew and Linux package managers ask for the computer's password. Never ask for it, type it or store it. If your shell can't show them the prompt, open a Terminal window running the same command so they can type it there. On a Mac, use `osascript -e 'tell application "Terminal" to do script "<command>"'`. Tell them nothing appears on screen while they type a password, and that this is normal.
+4. **Check it worked.** Run `~/.local/bin/sports --list --tv`, or `sports --list --tv` once the command's folder is on `PATH`. It should print channels. If it reports something missing, run the command it names, such as `sports --setup`.
+5. **Open the app for them.** The app is a full-screen program that needs a real terminal window, so you can't run it inside your own tool calls. On a Mac, run `osascript -e 'tell application "Terminal" to do script "sports"'`. On Linux, open their terminal app with `sports`. On Windows, start `wt sports` or a new PowerShell window. Then teach them three things: arrow keys and Enter to choose, Esc to go back, and `q` to quit. `?` shows the rest.
+6. **Later requests.** "Update it" means `sports --update`; their settings stay. "Video doesn't play" means checking `sports --setup`, then trying another source on the Sources screen. "Remove it" means deleting `~/.local/share/sports-cli` and `~/.local/bin/sports` (`%LOCALAPPDATA%\sports-cli` on Windows). Confirm before you delete.
+
+Keep it this simple for them. Don't clone with Git, edit files, or run the developer checks below unless they ask to change the app.
+
+## Development
+
 Run the local checks from the repository root:
 
 ```sh
