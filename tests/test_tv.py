@@ -150,6 +150,29 @@ class TvModeTests(unittest.TestCase):
             app.handle_key(27, None)
             self.assertEqual(app.mode, 'search')
 
+    def test_nfl_sunday_schedule_leads_with_redzone(self):
+        import datetime as dt
+        sunday, monday = dt.date(2026, 11, 1), dt.date(2026, 11, 2)
+        game = nba.Game('1', 'Bills at Chiefs', dt.datetime(2026, 11, 1, 18, tzinfo=dt.timezone.utc), 'Kansas City Chiefs',
+                        'Buffalo Bills', 'Chiefs', 'Bills', league='nfl', category='football', state='live')
+        redzone = tv.Channel('NFL RedZone', [tv.Source('doms9', 'stream', 'https://tv.example/rz.m3u8', 'direct')], True)
+        app = nba.App(None, {})
+        app.league, app.mode, app.all_games, app.feed_workers = 'nfl', 'games', [game], [object()]
+        app.day = monday; app.apply_search()
+        self.assertEqual([g.title for g in app.games], ['Bills at Chiefs'])
+        with patch.object(tv, 'directory', return_value=([redzone], [])):
+            app.day = sunday; app.apply_search()
+            self.assertEqual((app.games[0].id, app.games[0].state, app.games[1].title), (nba.REDZONE, 'redzone-live', 'Bills at Chiefs'))
+            app.handle_key(10, None)  # Enter while the channel list is still loading
+            self.assertIn('Loading NFL RedZone', app.message)
+            app.channel_queue.put(app.channel_queue.get(timeout=2))
+            with patch.object(app, 'refresh_feeds'): app.poll_channels()
+        self.assertEqual((app.mode, app.feed_context, app.current_channel.name), ('feeds', 'tv', 'NFL RedZone'))
+        app.handle_key(27, None)
+        self.assertEqual((app.mode, app.games[app.gi].id), ('games', nba.REDZONE))
+        app.search = 'chiefs'; app.apply_search()
+        self.assertEqual([g.title for g in app.games], ['Bills at Chiefs'])
+
     def test_backups_cover_tv_channels(self):
         app = nba.App(None, {})
         app.feed_context = 'tv'

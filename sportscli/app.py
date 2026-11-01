@@ -49,6 +49,7 @@ LEAGUES = {
     'ucl': ('Soccer: Champions League', 'soccer/uefa.champions', 'soccer'),
 }
 PPV = 'https://api.ppv.st/api/streams'
+REDZONE = 'redzone'  # the id of the NFL RedZone row on an NFL Sunday schedule
 SF = 'https://streamfree.top/streams'
 SF_ROOT = 'https://streamfree.top'
 NTV = 'https://ntv.st'
@@ -814,7 +815,7 @@ class App:
         self.current_replay = None
         self.channels, self.channel_errors, self.channel_filter = [], [], ''
         self.ci = 0; self.channels_loading = False; self.channels_loaded_at = 0
-        self.channel_queue = queue.Queue(); self.current_channel = None
+        self.channel_queue = queue.Queue(); self.current_channel = None; self.redzone_pending = False
         self.current_bundle = None
         self.bundle_index = 0
         self.help_return = 'games'
@@ -1098,8 +1099,9 @@ class App:
             for y, game in enumerate(self.games[start:start+rows], 3):
                 selected = start+y-3 == self.gi
                 when = game.start.astimezone().strftime('%a %b %d  %I:%M %p %Z')
-                status = {'live':'LIVE', 'upcoming':'UPCOMING'}.get(game.state, '?')
-                attr = curses.A_REVERSE if selected else self.live_color if game.state == 'live' else 0
+                status = {'live':'LIVE', 'upcoming':'UPCOMING', 'redzone-live':'LIVE', 'redzone':'CHANNEL'}.get(game.state, '?')
+                if game.id == REDZONE: when = f'{"Live TV channel":<24}'
+                attr = curses.A_REVERSE if selected else self.live_color if game.state in ('live', 'redzone-live') else 0
                 self.put(y, 2, f'{">" if selected else " "} {status}  {when}  {game.title}', attr)
             if not self.games:
                 self.put(4, 2, self.spinner() + ' Loading schedule' if self.loading_games else 'No upcoming or live games. Change date or search.')
@@ -1284,7 +1286,27 @@ class App:
     def apply_search(self):
         query = self.search.lower()
         self.games = [g for g in self.all_games if query in (g.title + ' ' + g.home + ' ' + g.away).lower()]
+        redzone = self.redzone_row()
+        if redzone and query in redzone.title.lower(): self.games.insert(0, redzone)
         self.gi = min(self.gi, max(0, len(self.games)-1))
+
+    def redzone_row(self):
+        """NFL RedZone, the live TV channel, leads an NFL Sunday schedule."""
+        if self.league != 'nfl' or self.day.weekday() != 6 or not self.all_games: return None
+        # Load channels ahead so Enter opens RedZone's sources at once.
+        if not self.channels and not self.channels_loading: self.refresh_channels()
+        live = any(game.state == 'live' for game in self.all_games)
+        return Game(REDZONE, 'NFL RedZone: every touchdown from every Sunday game', min(g.start for g in self.all_games),
+                    '', '', '', '', ['NFL RedZone'], 'nfl', 'football', state='redzone-live' if live else 'redzone')
+
+    def open_redzone(self):
+        channel = next((c for c in self.channels if c.name == 'NFL RedZone'), None)
+        if channel:
+            self.current_channel = channel; self.open_feeds('tv', 'games')
+        elif self.channels_loading:
+            self.redzone_pending = True; self.message = 'Loading NFL RedZone sources...'
+        else:
+            self.message = 'NFL RedZone has no sources right now. Press r to refresh.'
 
     def update_global_search(self):
         # Search covers live TV too; load the channel list once, in the background.
@@ -1739,7 +1761,10 @@ class App:
         if channels or not self.channels:
             self.channels, self.channel_errors = channels, errors; self.channels_loaded_at = time.monotonic()
         self.ci = min(self.ci, max(0, len(self.visible_channels())-1))
-        if self.mode == 'channels':
+        if self.redzone_pending:
+            self.redzone_pending = False
+            if self.mode == 'games' and self.games and self.games[self.gi].id == REDZONE: self.open_redzone()
+        elif self.mode == 'channels':
             self.message = self.channel_summary() + (' | ' + ', '.join(errors) if errors else '')
         elif self.mode == 'search' and self.search_plan is not None:
             self.rebuild_global_results()
@@ -2499,7 +2524,8 @@ class App:
             if self.section == 'replays': self.mode = 'replays'; self.replay_search = ''; self.refresh_replays()
             else: self.mode = 'games'; self.refresh_games()
         elif self.mode == 'games' and self.games:
-            self.open_feeds('live', None)
+            if self.games[self.gi].id == REDZONE: self.open_redzone()
+            else: self.open_feeds('live', None)
         elif self.mode == 'replays' and self.replays:
             self.current_replay = self.replays[self.ri]; self.replay_selection_touched = True
             self.open_feeds('replay', None)
