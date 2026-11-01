@@ -2,6 +2,7 @@
 
     python3 -m sportscli.tools.record_games ~/ad-data/recordings nba:Knicks nhl:Jets ncaaf:Baylor
     python3 -m sportscli.tools.record_games ~/ad-data/recordings "tv:NFL Network" --hours 2
+    python3 -m sportscli.tools.record_games ~/ad-data/recordings nba:Celtics --prefer NBCS ESPN TNT
 
 Each argument is ``league:team`` (any part of either team's name) or ``tv:channel``
 from the live TV directory. The tool waits for each of today's matching games to
@@ -55,10 +56,17 @@ def command(url, headers, output):
     return cmd + [*HLS, '-i', url, *ENCODE, str(output)]
 
 
-def sources(player, game):
+def preferred(feed, prefer):
+    text = f'{feed.source} {feed.label}'.casefold()
+    return any(word.casefold() in text for word in prefer)
+
+
+def sources(player, game, prefer=()):
     feeds, _ = app.fetch_feeds(game, dict(player.config))
-    # PPV needs the local resolver, so try it only after direct sources.
-    for feed in sorted((item for item in feeds if item.kind != 'web'), key=lambda item: item.kind == 'ppv'):
+    # Preferred feeds first (a TV network carries commercials; league feeds often show the arena),
+    # then direct sources; PPV needs the local resolver, so it comes last.
+    order = lambda item: (not preferred(item, prefer), item.kind == 'ppv')
+    for feed in sorted((item for item in feeds if item.kind != 'web'), key=order):
         try: yield feed, player.resolve_feed(feed)
         except Exception as exc:  # noqa: BLE001 - providers fail in many ways; try the next one
             log(game.title, 'source failed:', feed.source, type(exc).__name__)
@@ -79,8 +87,7 @@ def record_channel(player, channel, folder, stop, hours):
     while not stop.is_set() and time.time() < deadline:
         recorded = False
         for feed, (url, headers) in channel_sources(player, channel):
-            part += 1
-            output = folder / f'{slug}-part{part:02d}.ts'
+            part, output = next_part(folder, slug, part)
             log(channel.name, 'recording', feed.source, '->', output.name)
             process = subprocess.Popen(command(url, headers, output), stdin=subprocess.DEVNULL)
             started = time.time(); growth = Growth(output)
@@ -99,7 +106,7 @@ def record_channel(player, channel, folder, stop, hours):
     log(channel.name, 'finished')
 
 
-def record(player, league, game, folder, stop):
+def record(player, league, game, folder, stop, prefer=()):
     slug = re.sub(r'[^a-z0-9]+', '-', f'{dt.date.today()}-{league}-{game.away_nickname}-at-{game.home_nickname}'.lower())
     start = game.start.timestamp()
     while not stop.is_set() and time.time() < start - 120:
@@ -109,9 +116,8 @@ def record(player, league, game, folder, stop):
         current = state(league, game.id)
         if current not in ('live', 'upcoming'): log(game.title, 'finished'); return
         recorded = False
-        for feed, (url, headers) in sources(player, game):
-            part += 1
-            output = folder / f'{slug}-part{part:02d}.ts'
+        for feed, (url, headers) in sources(player, game, prefer):
+            part, output = next_part(folder, slug, part)
             log(game.title, 'recording', feed.source, '->', output.name)
             process = subprocess.Popen(command(url, headers, output), stdin=subprocess.DEVNULL)
             started = time.time(); growth = Growth(output)
@@ -128,6 +134,14 @@ def record(player, league, game, folder, stop):
         failures = 0 if recorded else failures + 1
         # No working source yet, usually before tip-off; try again shortly.
         stop.wait(30 if recorded else min(300, 60 * failures))
+
+
+def next_part(folder, slug, part):
+    """The next unused part file, so a second recorder of the same game never collides with the first."""
+    while True:
+        part += 1
+        output = folder / f'{slug}-part{part:02d}.ts'
+        if not output.exists(): return part, output
 
 
 class Growth:
@@ -154,6 +168,8 @@ def main(argv=None):
     parser.add_argument('folder', type=pathlib.Path)
     parser.add_argument('games', nargs='+', help='league:team, for example nba:Knicks, or tv:channel')
     parser.add_argument('--hours', type=float, default=2.0, help='how long to record each tv: channel')
+    parser.add_argument('--prefer', nargs='*', default=[],
+                        help='try game sources whose name contains one of these first, for example NBCS ESPN')
     args = parser.parse_args(argv)
     folder = args.folder.expanduser(); folder.mkdir(parents=True, exist_ok=True)
     player = app.App(None, app.load_config())
@@ -173,7 +189,7 @@ def main(argv=None):
         game = find_game(app.get_games(league=league), team)
         if not game: log('No game today for', choice); continue
         log('Queued', league, game.title, game.start.astimezone().strftime('%H:%M'))
-        thread = threading.Thread(target=record, args=(player, league, game, folder, stop), daemon=True)
+        thread = threading.Thread(target=record, args=(player, league, game, folder, stop, args.prefer), daemon=True)
         thread.start(); threads.append(thread)
     try:
         while any(thread.is_alive() for thread in threads): time.sleep(5)
