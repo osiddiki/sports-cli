@@ -30,6 +30,7 @@ ENCODE = ['-vf', 'scale=-2:216,fps=10', '-c:v', 'libx264', '-preset', 'veryfast'
 HLS = ['-allowed_extensions', 'ALL', '-allowed_segment_extensions', 'ALL', '-extension_picky', '0',
        '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '10']
 MAX_HOURS = 4.5
+STALL_SECONDS = 120  # a live source that writes nothing this long has frozen; ffmpeg keeps waiting on it
 
 
 def log(*parts):
@@ -82,9 +83,10 @@ def record_channel(player, channel, folder, stop, hours):
             output = folder / f'{slug}-part{part:02d}.ts'
             log(channel.name, 'recording', feed.source, '->', output.name)
             process = subprocess.Popen(command(url, headers, output), stdin=subprocess.DEVNULL)
-            started = time.time()
+            started = time.time(); growth = Growth(output)
             while process.poll() is None and not stop.wait(min(30, max(1, deadline - time.time()))):
                 if time.time() >= deadline: break
+                if growth.stalled(): log(channel.name, 'source stalled'); break
             stop_process(process)
             ran = time.time() - started
             log(channel.name, f'source ended after {ran / 60:.1f} min')
@@ -112,11 +114,12 @@ def record(player, league, game, folder, stop):
             output = folder / f'{slug}-part{part:02d}.ts'
             log(game.title, 'recording', feed.source, '->', output.name)
             process = subprocess.Popen(command(url, headers, output), stdin=subprocess.DEVNULL)
-            started = time.time()
+            started = time.time(); growth = Growth(output)
             while process.poll() is None and not stop.is_set():
                 if stop.wait(60): break
                 if state(league, game.id) not in ('live', 'upcoming') or time.time() > deadline:
                     stop_process(process); log(game.title, 'finished'); return
+                if growth.stalled(): log(game.title, 'source stalled'); break
             stop_process(process)
             ran = time.time() - started
             log(game.title, f'source ended after {ran / 60:.1f} min')
@@ -125,6 +128,18 @@ def record(player, league, game, folder, stop):
         failures = 0 if recorded else failures + 1
         # No working source yet, usually before tip-off; try again shortly.
         stop.wait(30 if recorded else min(300, 60 * failures))
+
+
+class Growth:
+    """Notice when a recording stops growing for STALL_SECONDS."""
+    def __init__(self, output, clock=time.time):
+        self.output, self.clock = output, clock
+        self.size, self.changed = -1, clock()
+
+    def stalled(self):
+        size = self.output.stat().st_size if self.output.exists() else 0
+        if size != self.size: self.size, self.changed = size, self.clock()
+        return self.clock() - self.changed > STALL_SECONDS
 
 
 def stop_process(process):
