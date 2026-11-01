@@ -169,6 +169,20 @@ exec "$PYTHON" "$APP/sports-cli" "\$@"
 EOF
 chmod +x "$BIN/sports"
 
+# A launcher in the Applications folder or app menu, so the app opens without typing a command.
+if [ "$OS" = mac ] && has osacompile; then
+  mkdir -p "$HOME/Applications"
+  rm -rf "$HOME/Applications/Sports CLI.app"
+  # Opening the launcher with Terminal, rather than scripting Terminal, needs no automation permission.
+  run osacompile -o "$HOME/Applications/Sports CLI.app" -e "do shell script \"open -a Terminal '$BIN/sports'\"" ||
+    echo 'The Applications launcher could not be made; type "sports" in Terminal instead.'
+elif [ "$OS" = linux ]; then
+  apps=${XDG_DATA_HOME:-$HOME/.local/share}/applications
+  mkdir -p "$apps"
+  printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Sports CLI' 'Comment=Live games, replays and TV' \
+    "Exec=$BIN/sports" 'Terminal=true' 'Icon=video-display' 'Categories=AudioVideo;Video;' > "$apps/sports-cli.desktop"
+fi
+
 case :$PATH: in
   *:"$BIN":*) on_path=1 ;;
   *) on_path=0 ;;
@@ -192,5 +206,8 @@ if [ "$ADS" = 1 ]; then
 fi
 
 say 'Sports CLI is ready'
-if [ "$on_path" = 1 ]; then echo 'Type: sports'; else echo 'Open a new Terminal window and type: sports'; fi
+if [ "$OS" = mac ]; then echo 'Open "Sports CLI" from Applications, Launchpad or Spotlight.'
+elif [ "$OS" = linux ]; then echo 'Open "Sports CLI" from your app menu.'
+fi
+if [ "$on_path" = 1 ]; then echo 'Or type: sports'; else echo 'Or open a new Terminal window and type: sports'; fi
 echo 'Later: "sports --update" updates it, "sports --setup-ppv" adds PPV sources, "sports --setup-ads" adds ad detection.'

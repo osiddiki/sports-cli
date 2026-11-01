@@ -6,6 +6,17 @@ Live schedules cover NBA, WNBA, NFL, NCAA football, men's and women's NCAA baske
 
 ## Install
 
+### Double-click install
+
+No typing needed:
+
+- **Mac:** download [Sports-CLI-Mac.zip](https://github.com/osiddiki/sports-cli/releases/download/installers/Sports-CLI-Mac.zip), open it, and double-click **Install Sports CLI**. The first time, macOS says it can't verify the file, because it isn't from the App Store. Click **Done**, open **System Settings → Privacy & Security**, scroll down, click **Open Anyway** next to "Install Sports CLI", then confirm.
+- **Windows:** download [Install-Sports-CLI.bat](https://github.com/osiddiki/sports-cli/releases/download/installers/Install-Sports-CLI.bat) and double-click it. If Windows shows "Windows protected your PC", click **More info**, then **Run anyway**.
+
+A window opens, lists what it will install, and waits for you to press Enter. It may ask for your computer's password; nothing appears while you type it, which is normal. When it finishes, Sports CLI opens. From then on, open **Sports CLI** from Applications, Launchpad or Spotlight on a Mac, or from the Start menu on Windows. Double-clicking the installer again updates it.
+
+### Install with one command
+
 On a **Mac or Linux** computer, open **Terminal**, paste this line, and press Enter:
 
 ```sh
@@ -18,7 +29,7 @@ On **Windows** 10 or 11, open **PowerShell** from the Start menu, paste this lin
 irm https://raw.githubusercontent.com/osiddiki/sports-cli/main/install.ps1 | iex
 ```
 
-Then open a new terminal window and type `sports`. On Ubuntu, if Terminal says `curl: command not found`, run `sudo apt install curl` first. On Windows, [Windows Terminal](https://aka.ms/terminal) shows the app best; it comes with Windows 11.
+Then open **Sports CLI** from Applications (Mac), your app menu (Linux) or the Start menu (Windows), or open a new terminal window and type `sports`. On Ubuntu, if Terminal says `curl: command not found`, run `sudo apt install curl` first. On Windows, [Windows Terminal](https://aka.ms/terminal) shows the app best; it comes with Windows 11.
 
 **Prefer not to use a terminal?** Ask an AI coding assistant that can run commands on your computer (Claude Code, Codex, Cursor and others) to *"install Sports CLI from github.com/osiddiki/sports-cli and open it for me"*. The repository's `AGENTS.md` tells it how: it explains what it will install, asks before installing, leaves any password for you to type, and opens the app in a window for you.
 

@@ -133,6 +133,15 @@ if "%~1"=="--setup-ads" ( powershell -NoProfile -ExecutionPolicy Bypass -File "$
 "@
 Set-Content -Path (Join-Path $Bin 'sports.cmd') -Value $launcher -Encoding ASCII
 
+# A Start menu entry, so the app opens without typing a command. Windows 11 opens it in Windows Terminal.
+try {
+  $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path ([Environment]::GetFolderPath('Programs')) 'Sports CLI.lnk'))
+  $shortcut.TargetPath = Join-Path $Bin 'sports.cmd'
+  $shortcut.WorkingDirectory = $env:USERPROFILE
+  $shortcut.Description = 'Live games, replays and TV'
+  $shortcut.Save()
+} catch { Write-Host 'The Start menu entry could not be made; type "sports" in a terminal instead.' }
+
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 if (-not (($userPath -split ';') -contains $Bin)) {
   [Environment]::SetEnvironmentVariable('Path', ($(if ($userPath) { "$userPath;" } else { '' }) + $Bin), 'User')
@@ -146,5 +155,5 @@ if ($Ads) {
 }
 
 Say 'Sports CLI is ready'
-Write-Host 'Open a new terminal window (Windows Terminal works best) and type: sports'
+Write-Host 'Open "Sports CLI" from the Start menu, or open a new terminal window and type: sports'
 Write-Host 'Later: "sports --update" updates it, "sports --setup-ppv" adds PPV sources, "sports --setup-ads" adds ad detection.'

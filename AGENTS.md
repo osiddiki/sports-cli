@@ -6,6 +6,8 @@ This repository is a Python terminal app for discovering and playing sports stre
 
 When a person asks you to install, run, update or fix Sports CLI for them, assume they have never used a terminal, GitHub or Git. They need no GitHub account. Do the work yourself, explain each step in one plain sentence, and leave them with the app open.
 
+If they would rather click than have you run commands, point them to the double-click installers in README's Install section.
+
 1. **Explain, then ask once.** Tell them what will be installed and why, from the list in README's Install section: Sports CLI, plus whichever of mpv (the video player), Python and, on a Mac, Homebrew are missing. Check with `command -v mpv python3 brew`. Ask before installing. Their yes lets you pass `--yes` (`-Yes` on Windows).
 2. **Install.** On macOS or Linux, run `curl -fsSL https://raw.githubusercontent.com/osiddiki/sports-cli/main/install.sh | sh -s -- --yes`. On Windows, run `irm https://raw.githubusercontent.com/osiddiki/sports-cli/main/install.ps1 | iex` in PowerShell. Add PPV sources (`--ppv`) or the ad detector (`--ads`) only when they ask for them.
 3. **Passwords are theirs to type.** Homebrew and Linux package managers ask for the computer's password. Never ask for it, type it or store it. If your shell can't show them the prompt, open a Terminal window running the same command so they can type it there. On a Mac, use `osascript -e 'tell application "Terminal" to do script "<command>"'`. Tell them nothing appears on screen while they type a password, and that this is normal.
@@ -22,7 +24,7 @@ Run the local checks from the repository root:
 ```sh
 python3 -m unittest -v
 python3 -m py_compile sports-cli sportscli/*.py sportscli/tools/*.py
-sh -n setup.sh install.sh
+sh -n setup.sh install.sh installers/*.command installers/publish.sh
 ```
 
 To prove a change in the real app, use the project skill `.claude/skills/verify-sports-cli` (a pseudo-terminal driver with a feature map); `scripts/run_all.sh` drives every mapped feature and needs a network without a sandbox proxy. Run `./sports-cli` in a terminal, or `./sports-cli --list --league nba` for non-interactive output. Live provider tests depend on current games, upstream availability, and network access; keep deterministic fixtures in the unit tests and report which real-player or live checks were possible.
@@ -30,6 +32,7 @@ To prove a change in the real app, use the project skill `.claude/skills/verify-
 ## Code map
 
 - `install.sh` (macOS, Linux) and `install.ps1` (Windows, through winget): the one-command installers for non-developers. They install only missing pieces (Homebrew on a Mac, Python, mpv; Node.js only with `--ppv`/`-Ppv`; a detector-compatible Python and the ad model only with `--ads`/`-Ads`), unpack the app without Git, and write the `sports` launcher, which sets `SPORTS_CLI_COMMAND` so missing-piece messages name `sports --setup`, `--setup-ppv` or `--setup-ads`. Windows has no `setup.sh`; `install.ps1` does its work itself.
+- `installers/`: double-click wrappers for people who don't use a terminal (`Install Sports CLI.command` for macOS Finder, `Install Sports CLI.bat` for Windows, CRLF). Each runs the one-command installer from `main`, then opens the app. They are unsigned, so README explains the first-run Gatekeeper and SmartScreen prompts. `installers/publish.sh` uploads them to the `installers` GitHub release that README links to; rerun it after changing them. The installers also add a launcher: `~/Applications/Sports CLI.app` (an AppleScript applet that opens the `sports` launcher with Terminal, so no automation permission), a Linux `.desktop` entry, or a Start menu shortcut.
 - Windows differences live at the boundary: `ad_mute.ipc_path` and `ad_mute.Connection` (named pipe instead of a Unix socket), `ai_ad_mute.venv_python` (`Scripts\python.exe`) and its `py` launcher search, and `save_config` (no POSIX modes). Keep new mpv IPC on `ad_mute.connect`.
 - `sports-cli`: the only user-facing executable; `sportscli/app.py`: schedules, sources, screens, asynchronous discovery, player launch and configuration.
 - `sportscli/smart_search.py`: local query parsing, team suggestions, and result ranking. `sportscli/data/teams.json` is the bundled ESPN team-name index; refresh it with `python3 -m sportscli.tools.update_teams` when appropriate.
