@@ -339,7 +339,9 @@ class AiAdMuteTests(unittest.TestCase):
         app.league = 'nfl'; app.render = lambda: None
         app.resolve_feed = lambda feed: ('https://example.com/video', {})
         feed = nba.Feed('Example', 'Football', kind='direct')
+        # A locally installed multi-sport model must not change this result.
         with patch.object(ai_ad_mute, 'installed', return_value=True), \
+             patch.object(ai_ad_mute, 'supported_leagues', return_value={'nba'}), \
              patch.object(ai_ad_mute, 'Monitor') as monitor, \
              patch.object(nba.shutil, 'which', return_value='/usr/bin/mpv'), \
              patch.object(nba.subprocess, 'run', return_value=SimpleNamespace(returncode=0)), \
