@@ -2133,6 +2133,11 @@ class App:
                            if ai_active else ad_mute.Monitor(socket_path, intervals))
                 monitor.start()
                 command.insert(1, '--input-ipc-server=' + socket_path)
+                if ai_active and '--hwdec=auto-safe' in command:
+                    # The detector's screenshots fail on frames left on the GPU once the stream's timestamps jump;
+                    # copying decoded frames back keeps hardware decoding and lets software screenshots read them.
+                    command[command.index('--hwdec=auto-safe')] = '--hwdec=auto-copy-safe'
+                    command.insert(1, '--screenshot-sw=yes')
             except OSError:
                 if preview: preview.close(); preview = None
                 if temporary: temporary.cleanup(); temporary = None

@@ -351,6 +351,27 @@ class AiAdMuteTests(unittest.TestCase):
         monitor.assert_not_called()
         self.assertIn('limited to NBA', app.message)
 
+    def test_nba_detector_playback_copies_frames_back_for_software_screenshots(self):
+        class Screen:
+            def refresh(self): pass
+        app = nba.App(Screen(), {}, ai_ad_mute_enabled=True)
+        app.league = 'nba'; app.render = lambda: None
+        app.resolve_feed = lambda feed: ('https://example.com/video', {})
+        commands = []
+        with patch.object(ai_ad_mute, 'installed', return_value=True), \
+             patch.object(ai_ad_mute, 'supported_leagues', return_value={'nba'}), \
+             patch.object(ai_ad_mute, 'Monitor'), \
+             patch.object(nba.shutil, 'which', return_value='/usr/bin/mpv'), \
+             patch.object(nba.subprocess, 'run', side_effect=lambda command, **kwargs: commands.append(command) or SimpleNamespace(returncode=0)), \
+             patch.object(nba.curses, 'def_prog_mode'), patch.object(nba.curses, 'endwin'), \
+             patch.object(nba.curses, 'reset_prog_mode'):
+            app.play(nba.Feed('Example', 'Game', kind='direct'))
+        mpv = next(command for command in commands if command[0] == 'mpv')
+        # Screenshots of GPU-only frames fail after a timestamp jump; copied-back frames do not.
+        self.assertIn('--hwdec=auto-copy-safe', mpv)
+        self.assertIn('--screenshot-sw=yes', mpv)
+        self.assertNotIn('--hwdec=auto-safe', mpv)
+
     def test_observe_mode_shows_predictions_without_changing_audio(self):
         with tempfile.TemporaryDirectory(prefix='observe-test-', dir='/tmp') as root:
             worker = pathlib.Path(root) / 'worker.py'
