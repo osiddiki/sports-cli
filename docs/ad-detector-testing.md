@@ -174,8 +174,31 @@ usually the middle. Nearly all of its SportsCenter false mutes were one analyst
 on a video call from his home, which looks like a commercial; remote and
 at-home studio shots from networks it has not seen remain the main risk. The
 NBA streams showed the arena feed during breaks instead of commercials, so NBA
-ad detection rests on NBA TV, ESPN and replay examples. The installed model
-covers the NBA, NHL, NFL and college football; EPL and WNBA stills were used in
-training but those leagues stay disabled because no held-out ads were measured
-for them. These are correlated samples from a few networks on two days, not a
+ad detection rests on NBA TV, ESPN and replay examples. That first model
+covered the NBA, NHL, NFL and college football. These are correlated samples from a few networks on two days, not a
 field accuracy estimate.
+
+On 31 October we added four more labeled live broadcasts (Notre Dame at Navy
+on ABC, Wisconsin at Iowa on FOX, Manchester United at Chelsea on TNT Sports,
+and Blackhawks at Bruins on NESN) and repeated the two-fold test with new held-out sets:
+
+| Held-out broadcasts | Paid ads muted | Game coverage | Studio | Bench | Promos |
+|---|---|---|---|---|---|
+| NHL (Jets at Panthers) | 418/708 | 2/2119 | 0/120 | 1/165 | 10/104 |
+| NHL (Blackhawks at Bruins, NESN) | 100/147 | 0/388 | 0/23 | 0/77 | 0/58 |
+| College football (Notre Dame at Navy, ABC) | 523/993 | 2/1740 | 1/99 | 0/94 | 12/36 |
+| College football (Wisconsin at Iowa, FOX, and Baylor at UCF, ESPN) | 1393/2259 | 1/5207 | 6/456 | 1/272 | 67/242 |
+| EPL (Manchester United at Chelsea, TNT Sports) | 132/267 | 0/3124 | 0/3 | 0/126 | 6/59 |
+| NFL Network game replay | 154/179 | 2/427 | none | 0/50 | 36/77 |
+| NBA (Rockets at Mavericks) | none labeled | 1/1986 | 0/14 | 0/529 | 24/131 |
+| NBA (Knicks at 76ers) | none labeled | 32/3337 | 0/96 | 12/1032 | 3/39 |
+| ESPN SportsCenter | 109/183 | 0/221 | 3/140 | 0/8 | 26/51 |
+
+More data raised the share of ad samples muted from about half to about 60
+percent and cut SportsCenter studio false mutes from 28 to 3, while game,
+studio and bench false mutes stayed below one percent everywhere except the
+Knicks broadcast, where about one percent of game samples were muted. The
+model now mutes more network promos, which the decision treats as neither
+right nor wrong. The installed model covers the NBA, NHL, NFL, college
+football and EPL; EPL rests on one held-out match. WNBA has no held-out ads and
+stays disabled, and other soccer leagues have no labeled footage yet.
