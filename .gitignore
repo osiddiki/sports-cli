@@ -12,3 +12,6 @@ __pycache__/
 build/
 dist/
 .DS_Store
+
+# Screenshots mpv saves into the working directory.
+mpv-shot*
