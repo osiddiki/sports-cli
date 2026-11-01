@@ -54,7 +54,7 @@ def inspect_stream(url, headers=None, *, quick=False):
         return opener.open(urllib.request.Request(target, headers=request_headers), timeout=timeout)
 
     started = time.monotonic()
-    current, resolution, probe_data = url, None, None
+    current, resolution, probe_data, bandwidth, speed = url, None, None, None, None
     ffprobe = shutil.which('ffprobe')
     timeout = 4 if quick else 10
     for _ in range(3):
@@ -71,35 +71,48 @@ def inspect_stream(url, headers=None, *, quick=False):
         for i, line in enumerate(lines):
             if line.startswith('#EXT-X-STREAM-INF:'):
                 size = re.search(r'RESOLUTION=(\d+)x(\d+)', line, re.I)
+                rate = re.search(r'(?<![-A-Z])BANDWIDTH=(\d+)', line, re.I)
                 if i + 1 < len(lines) and not lines[i + 1].startswith('#'):
-                    variants.append((int(size.group(2)) if size else 0, lines[i + 1]))
+                    variants.append((int(size.group(2)) if size else 0, int(rate.group(1)) if rate else 0, lines[i + 1]))
         if variants:
-            height, child = max(variants)
+            height, rate, child = max(variants)
             if height >= 144:
                 resolution = height
+            bandwidth = rate or None
             current = urllib.parse.urljoin(current, child)
             continue
-        segments = [line for line in lines if not line.startswith('#')]
+        segments = [(i, line) for i, line in enumerate(lines) if not line.startswith('#')]
         if not segments:
             raise ValueError('No media segments available')
-        segment = urllib.parse.urljoin(current, segments[-2] if len(segments) > 1 else segments[-1])
+        index, name = segments[-2] if len(segments) > 1 else segments[-1]
+        duration = next((float(m.group(1)) for line in reversed(lines[:index]) if line.startswith('#EXTINF:')
+                         for m in [re.match(r'#EXTINF:\s*([\d.]+)', line)] if m), None)
+        segment = urllib.parse.urljoin(current, name)
         with open_url(segment, timeout if quick else 12) as res:
             sample = res.read(512)
-            latency_ms = round((time.monotonic() - started) * 1000)
+            # Players keep their connection open between segments, so time the transfer, not the connection setup.
+            first_byte = time.monotonic()
+            latency_ms = round((first_byte - started) * 1000)
             if not sample or sample.lstrip().lower().startswith((b'<html', b'<!doctype html')):
                 raise ValueError('Media segment unavailable')
             if sample.startswith(b'\x89PNG\r\n\x1a\n') and b'tsDa' not in sample:
                 raise ValueError('Unsupported image-wrapped media segment')
             # Probe only a bounded portion of the chosen segment. ffprobe cannot
             # follow URLs embedded in an untrusted playlist from this input.
-            if ffprobe:
-                # A quick check reads less; the first keyframe's header is enough for the height.
-                probe_data = sample + res.read((512 if quick else 2048) * 1024 - len(sample))
+            # A quick check reads less; the first keyframe's header is enough for the height,
+            # and half a megabyte is enough to tell a fast server from one that will stall.
+            probe_data = sample + res.read((512 if quick else 2048) * 1024 - len(sample))
+            elapsed = time.monotonic() - first_byte
+            length = res.headers.get('Content-Length')
+            size = int(length) if length and length.isdigit() and int(length) > 0 else (bandwidth or 0) * (duration or 0) / 8
+            if duration and size and elapsed > 0 and len(probe_data) >= min(size, 64 * 1024):
+                # How many seconds of video arrive per second of download; below 1 the player falls behind.
+                speed = round((len(probe_data) - len(sample)) / elapsed * duration / size, 1)
         break
     else:
         raise ValueError('Too many nested playlists')
 
-    if ffprobe and probe_data:
+    if ffprobe and probe_data and len(probe_data) > 512:
         command = [ffprobe, '-v', 'error', '-select_streams', 'v:0',
                    '-show_entries', 'stream=height', '-of', 'json', 'pipe:0']
         try:
@@ -110,7 +123,7 @@ def inspect_stream(url, headers=None, *, quick=False):
                     resolution = streams[0]['height']
         except (OSError, ValueError, subprocess.TimeoutExpired):
             pass
-    return {'latency_ms': latency_ms, 'height': resolution}
+    return {'latency_ms': latency_ms, 'height': resolution, 'speed': speed}
 
 
 def source_key(feed):

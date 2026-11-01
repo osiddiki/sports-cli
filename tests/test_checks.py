@@ -64,6 +64,7 @@ class ReopenSourcesTests(unittest.TestCase):
         self.app = nba.App(None, {})
         self.addCleanup(self.app.close)
         self.app.mode = 'feeds'; self.app.feed_context = 'tv'
+        self.app.show_failed = True  # these tests follow failed sources too; v shows them in the app
         self.calls = []
         self.lock = threading.Lock()
         self.results = {'low': 480, 'high': 1080, 'down': 404}

@@ -26,6 +26,7 @@ class Entry:
     status: str
     height: int | None
     checked_at: float
+    speed: float | None = None     # seconds of video downloaded per second; below 1 the player falls behind
 
 
 class CheckCache:
@@ -39,7 +40,8 @@ class CheckCache:
         try:
             with open(self.path, encoding='utf-8') as source: data = json.load(source)
             return {name: Entry(item['status'], item.get('height') if isinstance(item.get('height'), int) else None,
-                                float(item['checked_at']))
+                                float(item['checked_at']),
+                                float(item['speed']) if isinstance(item.get('speed'), (int, float)) else None)
                     for name, item in data.items()
                     if isinstance(item, dict) and isinstance(item.get('status'), str)}
         except (OSError, ValueError, TypeError, KeyError, AttributeError):
@@ -52,13 +54,14 @@ class CheckCache:
         entry = self.entries.get(key(feed))
         return entry if entry and self._fresh(entry) else None
 
-    def put(self, feed, status, height=None):
+    def put(self, feed, status, height=None, speed=None):
         if status != 'OK' and not (isinstance(status, str) and status.startswith('HTTP ')): return
-        self.entries[key(feed)] = Entry(status, height if isinstance(height, int) else None, self.clock())
+        self.entries[key(feed)] = Entry(status, height if isinstance(height, int) else None, self.clock(),
+                                        float(speed) if isinstance(speed, (int, float)) else None)
 
     def save(self):
         self.entries = {name: entry for name, entry in self.entries.items() if self._fresh(entry)}
-        data = {name: {'status': entry.status, 'height': entry.height, 'checked_at': entry.checked_at}
+        data = {name: {'status': entry.status, 'height': entry.height, 'checked_at': entry.checked_at, 'speed': entry.speed}
                 for name, entry in self.entries.items()}
         folder = os.path.dirname(self.path)
         try:

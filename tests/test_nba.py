@@ -314,12 +314,13 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(app.visible_feeds(), [dead,good])
         self.assertEqual(app.message, 'Install resolver')
 
-    def test_automatic_checks_are_bounded_and_keep_transient_failures_visible(self):
+    def test_automatic_checks_cover_every_source_and_hide_failures_until_asked(self):
         app = nba.App(None,{})
         self.addCleanup(app.close)
         app.games = [self.game]; app.mode = 'feeds'; app.feed_generation = 1
         feeds = [nba.Feed('Source', name, url='https://example.com/' + name, kind='direct')
                  for name in ('one', 'two', 'three', 'four', 'five', 'six', 'seven')]
+        feeds.append(nba.Feed('Source', 'page', url='https://example.com/page', kind='web'))
         app.feeds = feeds
         def probe(feed):
             if feed.label == 'two':
@@ -330,16 +331,18 @@ class DiscoveryTests(unittest.TestCase):
             end = time.monotonic() + 1
             while 'checking' in app.auto_checks.values() and time.monotonic() < end:
                 app.poll_auto_checks(); time.sleep(.01)
-        self.assertEqual(check.call_count, nba.AUTO_CHECKS_PER_DIRECTORY)
+        self.assertEqual(check.call_count, 7)  # every sampleable source; a browser-only page is not
         self.assertEqual(app.auto_checks[id(feeds[0])], 'OK')
         self.assertEqual(app.auto_checks[id(feeds[1])], 'HTTP 403')
-        self.assertNotIn(id(feeds[6]), app.auto_checks)
-        # A failed check keeps the source visible but moves it below the others.
-        self.assertEqual(app.visible_feeds(), [feeds[0], *feeds[2:], feeds[1]])
+        self.assertNotIn(id(feeds[7]), app.auto_checks)
+        # A failed check hides the source; v shows it again, last.
+        self.assertEqual(app.visible_feeds(), [feeds[0], *feeds[2:7], feeds[7]])
+        app.feed_key(ord('v'))
+        self.assertEqual(app.visible_feeds(), [feeds[0], *feeds[2:7], feeds[7], feeds[1]])
         self.assertEqual(app.fi, 0)
         self.assertNotIn('health', app.config)
 
-    def test_failed_check_sinks_source_without_moving_a_chosen_selection(self):
+    def test_failed_check_hides_source_without_moving_a_chosen_selection(self):
         app = nba.App(None, {})
         self.addCleanup(app.close)
         app.feed_generation = 1
@@ -348,12 +351,27 @@ class DiscoveryTests(unittest.TestCase):
         app.feeds = feeds
         for feed in feeds: app.auto_checks[id(feed)] = 'checking'
         app.auto_queue.put((1, one, 'HTTP 404')); app.poll_auto_checks()
-        self.assertEqual(app.visible_feeds(), [two, three, one])
+        self.assertEqual(app.visible_feeds(), [two, three])
         self.assertIs(app.visible_feeds()[app.fi], two)  # untouched: the top source is selected
         app.fi = 1; app.feed_selection_touched = True  # the user picks three
         app.auto_queue.put((1, two, 'HTTP 403')); app.poll_auto_checks()
-        self.assertEqual(app.visible_feeds(), [three, one, two])
+        self.assertEqual(app.visible_feeds(), [three])
         self.assertIs(app.visible_feeds()[app.fi], three)
+
+    def test_smooth_sources_rank_above_faster_resolutions_that_may_lag(self):
+        app = nba.App(None, {})
+        self.addCleanup(app.close)
+        app.feed_generation = 1
+        laggy, smooth, unmeasured = feeds = [nba.Feed('Source', name, url='https://example.com/' + name, kind='direct')
+                                             for name in ('laggy', 'smooth', 'unmeasured')]
+        app.feeds = feeds
+        for feed in feeds: app.auto_checks[id(feed)] = 'checking'
+        for feed, height, speed in ((laggy, 1080, 0.8), (smooth, 720, 3.5), (unmeasured, 1080, None)):
+            app.auto_queue.put((1, feed, 'OK', height, speed))
+        app.poll_auto_checks()
+        self.assertEqual(app.visible_feeds(), [smooth, unmeasured, laggy])
+        self.assertEqual([nba.describe_feed(f, {'speed': app.auto_speeds.get(id(f))}, 'OK').check for f in app.visible_feeds()],
+                         ['Smooth', 'OK', 'May lag'])
 
     def test_checked_sources_order_by_measured_resolution(self):
         app = nba.App(None, {})
@@ -673,6 +691,33 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(grading.summary({'checks':[True,False], 'height':720}), '? 1/2 720p')
         self.assertEqual(grading.summary({'checks':[True,True,True]}), 'A 3/3')
         self.assertGreater(grading.score({'checks':[True,True,True]}), grading.score({}))
+
+    def test_grading_measures_whether_a_server_keeps_up_with_playback(self):
+        segment = b'\x47' * 200_000
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def do_GET(self):
+                if self.path.endswith('.m3u8'):
+                    # Six seconds of video in each segment, or a fifth of a second for the slow server.
+                    body = (b'#EXTM3U\n#EXTINF:%s,\n%s.ts\n' % (b'0.2' if 'slow' in self.path else b'6', self.path[1:-5].encode()))
+                    self.send_response(200); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
+                    return
+                self.send_response(200); self.send_header('Content-Length', str(len(segment))); self.end_headers()
+                for start in range(0, len(segment), 20_000):
+                    self.wfile.write(segment[start:start+20_000])
+                    if 'slow' in self.path: time.sleep(.05)
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        base = f'http://127.0.0.1:{server.server_port}'
+        try:
+            with patch.object(grading.shutil, 'which', return_value=None):
+                fast = grading.inspect_stream(base + '/fast.m3u8', quick=True)['speed']
+                slow = grading.inspect_stream(base + '/slow.m3u8', quick=True)['speed']
+        finally:
+            server.shutdown(); server.server_close(); thread.join()
+        self.assertGreaterEqual(fast, 2)  # a local server delivers six seconds of video far faster than real time
+        self.assertLess(slow, 1)          # half a second to deliver a fifth of a second of video: playback would stall
+        self.assertEqual((nba.smoothness(fast), nba.smoothness(slow)), (0, 2))
 
 if __name__ == '__main__':
     unittest.main()

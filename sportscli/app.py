@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 
 UTC = dt.timezone.utc
 SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-AUTO_CHECKS_PER_DIRECTORY, AUTO_CHECKS_PER_SCREEN = 6, 8
+AUTO_CHECKS_PER_DIRECTORY, AUTO_CHECKS_PER_SCREEN = 80, 80
 UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36'
 ESPN = 'https://site.api.espn.com/apis/site/v2/sports'
 LEAGUES = {
@@ -67,7 +67,7 @@ HELP_LINES = [
     'LISTS          f: filter this list    r: refresh    s: change sport (games and replays)',
     'SCHEDULE       [ and ]: previous or next day',
     'SOURCES        Enter: play    x: test    i: show media URL    o: provider    a: home or away feed',
-    '               g: rank by checks    u: play a pasted media URL',
+    '               g: rank by checks    u: play a pasted media URL    v: show sources that failed checks',
     'SEARCH         Type a team, player, game or channel    Up/Down: select    Esc: back    Ctrl-X: quit',
     'SETTINGS       Player, cache, terminal video, backup source, ad breaks, add-on, PPV resolver',
     'AD MUTE        --ad-mute: marked replays    --ai-ad-mute: local NBA detector    --ai-ad-observe: preview',
@@ -257,6 +257,11 @@ def check_age(seconds):
     return 'now' if minutes == 0 else f'{minutes}m' if minutes < 60 else f'{minutes // 60}h'
 
 
+def smoothness(speed):
+    """0 smooth, 1 unmeasured or enough, 2 likely to lag: video downloaded per second of download time."""
+    return 1 if speed is None else 0 if speed >= 2 else 1 if speed >= 1.2 else 2
+
+
 def describe_feed(feed, record=None, automatic=None):
     """Turn provider-specific labels into consistent, readable stream rows."""
     parts = [part.strip() for part in feed.label.split('|') if part.strip()]
@@ -272,7 +277,10 @@ def describe_feed(feed, record=None, automatic=None):
     record = record if isinstance(record, dict) else {}
     height = record.get('height')
     quality = f'{height}p' if isinstance(height, int) and height >= 144 else f'~{listed_quality}' if listed_quality else '-'
-    status = {'checking':'Checking', 'testing':'Testing', 'OK':'OK', '?':'Unverified'}.get(automatic, automatic or 'Unverified')
+    status = {'checking':'Checking', 'testing':'Testing', 'OK':'OK', '?':'Unverified', 'n/a':'Checked on play'}.get(
+        automatic, automatic or ('Checked on play' if feed.kind in ('ppv', 'web') else 'Unverified'))
+    if isinstance(automatic, str) and automatic.split(' ')[0] == 'OK' and isinstance(record.get('speed'), (int, float)):
+        status = ('Smooth', 'OK', 'May lag')[smoothness(record['speed'])] + automatic[2:]
     grade = grading.summary(record)
     if grade:
         grade = re.sub(r'\s+\d+p$', '', grade)
@@ -847,9 +855,9 @@ class App:
         self.hidden_feeds = set()
         self.auto_checks = {}
         self.auto_queue = queue.Queue()
-        self.auto_jobs = queue.Queue(maxsize=24)
+        self.auto_jobs = queue.Queue(maxsize=AUTO_CHECKS_PER_SCREEN)
         self.auto_workers = []
-        self.auto_generation = None; self.auto_started = 0; self.auto_heights = {}
+        self.auto_generation = None; self.auto_started = 0; self.auto_heights = {}; self.auto_speeds = {}; self.show_failed = False
         self.check_cache = checks.CheckCache(); self.auto_checked_at = {}; self.recheck_generation = None
         self.manual_checks = set()
         self.manual_queue = queue.Queue()
@@ -906,7 +914,8 @@ class App:
         query = self.feed_search.casefold().strip()
         feeds = [f for f in self.feeds if id(f) not in self.hidden_feeds and (self.filter == 'all' or f.side == side)
                  and (self.provider_filter == 'all' or f.source == self.provider_filter)
-                 and (not query or query in (f.source + ' ' + f.label).casefold())]
+                 and (not query or query in (f.source + ' ' + f.label).casefold())
+                 and (self.show_failed or not self.failed_check(f))]
         if self.rank_by_checks:
             history = self.config.get('health') if isinstance(self.config.get('health'), dict) else {}
             def rank(feed):
@@ -917,13 +926,17 @@ class App:
                 return (reachability, *grading.score(history.get(grading.source_key(feed), {})))
             feeds.sort(key=rank, reverse=True)
         else:
-            # Keep directory order, but a source whose check failed goes below the rest.
-            # Among the rest, a source measured at a higher resolution goes first.
+            # Working sources first, smooth before laggy, then by measured resolution; the rest keep directory order.
             def order(feed):
                 status = self.manual_status.get(id(feed), self.auto_checks.get(id(feed)))
-                return (isinstance(status, str) and status.startswith('HTTP '), -self.auto_heights.get(id(feed), 0))
+                group = 0 if status == 'OK' else 2 if self.failed_check(feed) else 1
+                return (group, smoothness(self.auto_speeds.get(id(feed))), -self.auto_heights.get(id(feed), 0))
             feeds.sort(key=order)
         return feeds
+
+    def failed_check(self, feed):
+        status = self.manual_status.get(id(feed), self.auto_checks.get(id(feed)))
+        return status == 'Failed' or isinstance(status, str) and status.startswith('HTTP ')
 
     def search_rows(self, width=None):
         """Build compact display rows, keeping headings out of keyboard selection."""
@@ -1170,8 +1183,11 @@ class App:
                        f'{"SOURCE":<{name_width}}  {"SIDE":5} {"QUALITY":7} CHECK')
             self.put(5, 4, columns, curses.A_DIM)
             # Only live games have home and away broadcasts to choose between.
+            failed = sum(1 for f in self.feeds if id(f) not in self.hidden_feeds and self.failed_check(f))
             actions = ('Enter play   x test   i inspect   u paste URL   ' + ('a side   ' if self.feed_context == 'live' else '')
-                       + 'o source   f filter   g rank   ' + ('s sport   ' if self.feed_context != 'tv' else '') + 'r refresh   Esc back')
+                       + 'o source   f filter   g rank   ' + ('s sport   ' if self.feed_context != 'tv' else '')
+                       + (f'v hide {failed} failed   ' if self.show_failed and failed else f'v show {failed} failed   ' if failed else '')
+                       + 'r refresh   Esc back')
             bottom = h-3-len(self.action_lines(actions))
             rows = max(1, (bottom-6)//2)
             start = max(0, self.fi-rows+1)
@@ -1187,6 +1203,7 @@ class App:
                     status = f'{status} {check_age(time.time() - self.auto_checked_at[id(feed)])}'
                 record = dict(history.get(grading.source_key(feed), {}))
                 if id(feed) in self.auto_heights: record['height'] = self.auto_heights[id(feed)]
+                if id(feed) in self.auto_speeds: record['speed'] = self.auto_speeds[id(feed)]
                 view = describe_feed(feed, record, status)
                 short_name = view.name if len(view.name) <= name_width else view.name[:name_width-1] + '…'
                 attr = curses.A_REVERSE if selected else 0
@@ -1201,7 +1218,9 @@ class App:
                     if compact and view.quality != '-': detail = view.quality + ' | ' + detail
                     self.put(y+1, 4, detail, attr if selected else curses.A_DIM)
             if not fs:
-                self.put(6, 2, self.spinner() + ' Looking for sources' if self.feed_pending else 'No sources available. Refresh near game time or change the filter.')
+                self.put(6, 2, self.spinner() + ' Looking for sources' if self.feed_pending else
+                         f'All {failed} sources failed their checks. Press v to show them or r to check again.' if failed and not self.show_failed else
+                         'No sources available. Refresh near game time or change the filter.')
             self.footer(actions)
         self.put(h-1, 1, self.message, curses.A_DIM)
         self.scr.refresh()
@@ -1681,7 +1700,7 @@ class App:
         self.errors = list(self.search_preview_errors)
         self.feed_pending = self.search_preview_pending
         self.fi = 0; self.feed_selection_touched = False
-        self.hidden_feeds.clear(); self.auto_checks.clear(); self.manual_status.clear(); self.auto_heights.clear()
+        self.hidden_feeds.clear(); self.auto_checks.clear(); self.manual_status.clear(); self.auto_heights.clear(); self.auto_speeds.clear()
         self.auto_checked_at.clear()
         self.search_preview_adopt_generation = generation
         for feeds in self.feed_sections.values(): self.start_auto_checks(generation, feeds)
@@ -1794,7 +1813,7 @@ class App:
             tasks = feed_tasks(self.games[self.gi], dict(self.config))
         self.feeds = []; self.errors = []; self.fi = 0
         self.hidden_feeds.clear()
-        self.auto_checks.clear(); self.auto_heights.clear(); self.auto_checked_at.clear()
+        self.auto_checks.clear(); self.auto_heights.clear(); self.auto_speeds.clear(); self.auto_checked_at.clear()
         self.manual_status.clear()
         self.feed_sections = {}; self.feed_order = [name for name, _ in tasks]
         self.feed_pending = len(tasks); self.feed_selection_touched = False
@@ -1864,7 +1883,8 @@ class App:
             self.auto_checks[id(feed)] = entry.status
             self.auto_checked_at[id(feed)] = entry.checked_at
             if entry.height is not None: self.auto_heights[id(feed)] = entry.height
-        # Check the top few of each directory so a working source is visible before the user picks one.
+            if entry.speed is not None: self.auto_speeds[id(feed)] = entry.speed
+        # Check every source the app can sample, so dead ones drop out and the smooth ones rise.
         room = max(0, AUTO_CHECKS_PER_SCREEN - self.auto_started)
         chosen = [feed for feed in unchecked if feed.kind in ('sf', 'direct', 'candidate')][:min(AUTO_CHECKS_PER_DIRECTORY, room)]
         self.auto_started += len(chosen)
@@ -1873,7 +1893,7 @@ class App:
             try: self.auto_jobs.put_nowait((generation, feed))
             except queue.Full: self.auto_checks[id(feed)] = '?'
         if not self.auto_workers:
-            for index in range(4):
+            for index in range(6):
                 worker = threading.Thread(target=self._auto_check_worker, name=f'source-check-{index}', daemon=True)
                 self.auto_workers.append(worker); worker.start()
 
@@ -1883,16 +1903,16 @@ class App:
             if job is None or self.closed.is_set(): return
             generation, feed = job
             if generation != self.feed_generation: continue
-            height = None
+            height = speed = None
             try:
                 result = quick_probe_feed(feed)
-                status = 'OK' if result else '?'
-                if isinstance(result, dict): height = result.get('height')
+                status = 'OK' if result else 'n/a'
+                if isinstance(result, dict): height, speed = result.get('height'), result.get('speed')
             except urllib.error.HTTPError as exc:
                 status = f'HTTP {exc.code}'
             except Exception:
-                status = '?'
-            if not self.closed.is_set(): self.auto_queue.put((generation, feed, status, height))
+                status = 'Failed'
+            if not self.closed.is_set(): self.auto_queue.put((generation, feed, status, height, speed))
 
     def poll_auto_checks(self):
         changed = False
@@ -1907,8 +1927,10 @@ class App:
             if generation != self.feed_generation or id(feed) not in self.auto_checks: continue
             self.auto_checks[id(feed)] = status
             self.auto_checked_at.pop(id(feed), None)
-            if measured and isinstance(measured[0], int): self.auto_heights[id(feed)] = measured[0]
-            self.check_cache.put(feed, status, measured[0] if measured else None)
+            height, speed = (list(measured) + [None, None])[:2]
+            if isinstance(height, int): self.auto_heights[id(feed)] = height
+            if isinstance(speed, (int, float)): self.auto_speeds[id(feed)] = speed
+            self.check_cache.put(feed, status, height, speed)
             changed = True
         if changed:
             self.check_cache.save()
@@ -2600,6 +2622,9 @@ class App:
             filters = ['all', 'home', 'away', 'unknown']
             self.filter = filters[(filters.index(self.filter)+1) % len(filters)]; self.fi = 0; self.feed_selection_touched = True
             self.message = f'Broadcast side: {self.filter}.'
+        elif key == ord('v') and (self.show_failed or any(self.failed_check(f) for f in self.feeds)):
+            self.show_failed = not self.show_failed; self.fi = 0; self.feed_selection_touched = True
+            self.message = 'Showing sources that failed their checks.' if self.show_failed else 'Hiding sources that failed their checks.'
         elif key == ord('o'):
             names = ['all'] + list(dict.fromkeys(f.source for f in self.feeds if id(f) not in self.hidden_feeds))
             self.provider_filter = names[(names.index(self.provider_filter)+1) % len(names)] if self.provider_filter in names else 'all'
