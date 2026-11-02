@@ -153,6 +153,8 @@ def train(train_set, epochs, alpha, batch):
     images = np.concatenate([r['images'][k] for r, k in zip(train_set, keep)])
     targets = np.concatenate([r['targets'][k] for r, k in zip(train_set, keep)])
     weights = np.concatenate([r['weights'][k] for r, k in zip(train_set, keep)])
+    # Hours of footage fill the memory of a 16 GB machine; keep only the combined copy.
+    for r in train_set: del r['images']
     hard = weights >= 1
     ads, coverage = int(np.sum(hard & (targets < .5))), int(np.sum(hard & (targets >= .5)))
     if not ads or not coverage: raise SystemExit('Training needs labeled ad and coverage frames.')
@@ -165,7 +167,15 @@ def train(train_set, epochs, alpha, batch):
         image = tf.image.random_contrast(image, .8, 1.2)
         image = tf.image.resize(tf.image.random_crop(image, (int(STUDENT_SIZE[0] * .9), int(STUDENT_SIZE[1] * .9), 3)), STUDENT_SIZE)
         return tf.clip_by_value(image, 0, 255), target, weight
-    data = (tf.data.Dataset.from_tensor_slices((images, targets, weights)).shuffle(len(images), seed=7)
+    # Feed frames by index so TensorFlow does not hold another copy of every image.
+    def frame(index):
+        return images[index], targets[index], weights[index]
+    def load(index):
+        image, target, weight = tf.numpy_function(frame, [index], (tf.uint8, tf.float32, tf.float32))
+        image.set_shape((*STUDENT_SIZE, 3)); target.set_shape(()); weight.set_shape(())
+        return image, target, weight
+    data = (tf.data.Dataset.range(len(images)).shuffle(len(images), seed=7)
+            .map(load, num_parallel_calls=tf.data.AUTOTUNE)
             .map(augment, num_parallel_calls=tf.data.AUTOTUNE).batch(batch).prefetch(tf.data.AUTOTUNE))
     model, backbone = build(alpha)
     frozen = max(1, epochs // 3)
