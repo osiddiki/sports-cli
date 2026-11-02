@@ -2257,14 +2257,16 @@ class App:
 
     def backup_candidates(self, feed):
         """Other live sources for the same broadcast side, reachable ones first."""
-        if not self.dual_stream or self.feed_context not in ('live', 'tv') or feed.kind in ('web', 'ppv'): return []
+        if not self.dual_stream or self.feed_context not in ('live', 'tv') or feed.kind == 'web': return []
         def status(item): return self.manual_status.get(id(item), self.auto_checks.get(id(item)))
         # A home and an away feed have different commentary, so never splice between them.
         options = [item for item in self.feeds if item is not feed and id(item) not in self.hidden_feeds
-                   and item.kind not in ('web', 'ppv') and item.url != feed.url
+                   and item.kind != 'web' and item.url != feed.url
                    and (feed.side == 'unknown' or item.side in (feed.side, 'unknown'))]
+        # PPV sources resolve through the slower local resolver, so try them after other sources.
         options.sort(key=lambda item: (status(item) != 'OK', item.side != feed.side,
-                                       isinstance(status(item), str) and status(item).startswith('HTTP ')))
+                                       isinstance(status(item), str) and status(item).startswith('HTTP '),
+                                       item.kind == 'ppv'))
         return options[:2]
 
     def merge_backup(self, url, headers, pending, budget=10):

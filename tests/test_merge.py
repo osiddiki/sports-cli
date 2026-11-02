@@ -178,6 +178,12 @@ class BackupSelectionTest(unittest.TestCase):
         app.feeds = [chosen, away, unknown, ok_home, web]
         app.auto_checks = {id(ok_home): 'OK'}
         self.assertEqual(app.backup_candidates(chosen), [ok_home, unknown])
+        ppv, other_home = feed('F', 'home', 'ppv'), feed('G', 'home')
+        app.feeds = [chosen, ppv, other_home]
+        self.assertEqual(app.backup_candidates(chosen), [other_home, ppv])
+        # A PPV source gets backups too, so a stalled resolver stream can fail over.
+        self.assertEqual(app.backup_candidates(ppv), [chosen, other_home])
+        app.feeds = [chosen, away, unknown, ok_home, web]
         app.dual_stream = False
         self.assertEqual(app.backup_candidates(chosen), [])
         app.dual_stream, app.feed_context = True, 'replay'
