@@ -344,6 +344,7 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_failed_check_hides_source_without_moving_a_chosen_selection(self):
         app = nba.App(None, {})
+        patcher = patch.object(nba, 'MIN_VISIBLE_SOURCES', 0); patcher.start(); self.addCleanup(patcher.stop)
         self.addCleanup(app.close)
         app.feed_generation = 1
         one, two, three = feeds = [nba.Feed('Source', name, url='https://example.com/' + name, kind='direct')
@@ -357,6 +358,23 @@ class DiscoveryTests(unittest.TestCase):
         app.auto_queue.put((1, two, 'HTTP 403')); app.poll_auto_checks()
         self.assertEqual(app.visible_feeds(), [three])
         self.assertIs(app.visible_feeds()[app.fi], three)
+
+    def test_failed_checks_never_leave_fewer_than_the_minimum_sources(self):
+        app = nba.App(None, {})
+        self.addCleanup(app.close)
+        app.feed_generation = 1
+        feeds = [nba.Feed('Source', f'feed{i}', url=f'https://example.com/{i}', kind='direct') for i in range(8)]
+        app.feeds = feeds
+        for feed in feeds: app.auto_checks[id(feed)] = 'checking'
+        for feed in feeds[:7]: app.auto_queue.put((1, feed, 'HTTP 403'))
+        app.poll_auto_checks()
+        visible = app.visible_feeds()
+        self.assertEqual(len(visible), nba.MIN_VISIBLE_SOURCES)
+        self.assertIs(visible[0], feeds[7])  # the one that passed stays on top
+        self.assertEqual(app.hidden_failed(), 3)
+        app.hide_feed(feeds[0])  # an explicit failure stays hidden
+        self.assertNotIn(feeds[0], app.visible_feeds())
+        self.assertEqual(len(app.visible_feeds()), nba.MIN_VISIBLE_SOURCES)
 
     def test_smooth_sources_rank_above_faster_resolutions_that_may_lag(self):
         app = nba.App(None, {})

@@ -49,6 +49,7 @@ LEAGUES = {
     'ucl': ('Soccer: Champions League', 'soccer/uefa.champions', 'soccer'),
 }
 PPV = 'https://api.ppv.st/api/streams'
+MIN_VISIBLE_SOURCES = 5  # failed checks never shrink a source list below this
 REDZONE = 'redzone'  # the id of the NFL RedZone row on an NFL Sunday schedule
 SF = 'https://streamfree.top/streams'
 SF_ROOT = 'https://streamfree.top'
@@ -912,10 +913,14 @@ class App:
     def visible_feeds(self):
         side = self.filter
         query = self.feed_search.casefold().strip()
-        feeds = [f for f in self.feeds if id(f) not in self.hidden_feeds and (self.filter == 'all' or f.side == side)
-                 and (self.provider_filter == 'all' or f.source == self.provider_filter)
-                 and (not query or query in (f.source + ' ' + f.label).casefold())
-                 and (self.show_failed or not self.failed_check(f))]
+        matching = [f for f in self.feeds if id(f) not in self.hidden_feeds and (self.filter == 'all' or f.side == side)
+                    and (self.provider_filter == 'all' or f.source == self.provider_filter)
+                    and (not query or query in (f.source + ' ' + f.label).casefold())]
+        feeds = [f for f in matching if self.show_failed or not self.failed_check(f)]
+        # A quick check can fail on a source that would still play, so never leave
+        # only a few choices: fill up with failed ones, which sort to the bottom.
+        if len(feeds) < MIN_VISIBLE_SOURCES:
+            feeds += [f for f in matching if f not in feeds][:MIN_VISIBLE_SOURCES - len(feeds)]
         if self.rank_by_checks:
             history = self.config.get('health') if isinstance(self.config.get('health'), dict) else {}
             def rank(feed):
@@ -933,6 +938,11 @@ class App:
                 return (group, smoothness(self.auto_speeds.get(id(feed))), -self.auto_heights.get(id(feed), 0))
             feeds.sort(key=order)
         return feeds
+
+    def hidden_failed(self):
+        """Sources hidden only because their check failed; v shows them."""
+        shown = {id(f) for f in self.visible_feeds()}
+        return sum(1 for f in self.feeds if id(f) not in self.hidden_feeds and id(f) not in shown and self.failed_check(f))
 
     def failed_check(self, feed):
         status = self.manual_status.get(id(feed), self.auto_checks.get(id(feed)))
@@ -1183,7 +1193,8 @@ class App:
                        f'{"SOURCE":<{name_width}}  {"SIDE":5} {"QUALITY":7} CHECK')
             self.put(5, 4, columns, curses.A_DIM)
             # Only live games have home and away broadcasts to choose between.
-            failed = sum(1 for f in self.feeds if id(f) not in self.hidden_feeds and self.failed_check(f))
+            failed = (sum(1 for f in self.feeds if id(f) not in self.hidden_feeds and self.failed_check(f))
+                      if self.show_failed else self.hidden_failed())
             actions = ('Enter play   x test   i inspect   u paste URL   ' + ('a side   ' if self.feed_context == 'live' else '')
                        + 'o source   f filter   g rank   ' + ('s sport   ' if self.feed_context != 'tv' else '')
                        + (f'v hide {failed} failed   ' if self.show_failed and failed else f'v show {failed} failed   ' if failed else '')

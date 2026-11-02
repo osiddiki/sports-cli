@@ -115,7 +115,8 @@ class ManualProbeTests(unittest.TestCase):
         self.assertIs(self.app.visible_feeds()[self.app.fi], self.second)
         self.app.auto_queue.put((1, self.first, 'HTTP 403'))
         self.app.poll_auto_checks()
-        self.assertEqual(self.app.visible_feeds(), [self.third, self.second])  # a failed source is hidden
+        # With fewer than the minimum sources, a failed one stays listed, below the rest.
+        self.assertEqual(self.app.visible_feeds(), [self.third, self.second, self.first])
         self.assertIs(self.app.visible_feeds()[self.app.fi], self.second)
 
     def test_manual_success_overrides_an_older_automatic_failure(self):
