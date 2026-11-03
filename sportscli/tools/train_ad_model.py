@@ -35,7 +35,7 @@ from sportscli.tools import evaluate_ads
 
 TEACHER_SIZE = (200, 320)        # the original model's input, height x width
 STUDENT_SIZE = (144, 256)
-TARGETS = {'broadcast': 1.0, 'studio': 1.0, 'bench': 1.0, 'overlay': 1.0, 'ad': 0.0}
+TARGETS = {'broadcast': 1.0, 'studio': 1.0, 'bench': 1.0, 'overlay': 1.0, 'ad': 0.0, 'arena': 0.0}
 COVERAGE = ('broadcast', 'studio', 'bench', 'overlay')
 
 

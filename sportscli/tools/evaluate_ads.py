@@ -22,7 +22,7 @@ from sportscli import ai_ad_mute
 
 
 # studio and bench are program coverage kept apart so their false mutes can be measured.
-LABELS = ('ad', 'broadcast', 'studio', 'bench', 'promo', 'break', 'overlay', 'unknown')
+LABELS = ('ad', 'broadcast', 'studio', 'bench', 'arena', 'promo', 'break', 'overlay', 'unknown')
 
 
 def read_intervals(path):

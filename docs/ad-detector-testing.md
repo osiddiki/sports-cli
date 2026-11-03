@@ -24,7 +24,10 @@ These sample times are illustrative:
 
 Use `broadcast` for game play, replays and other program coverage; `studio` for
 studio, desk and booth segments with hosts or analysts on camera; `bench` for
-bench, sideline, crowd and interview shots away from play; `ad` for a full-screen
+players, coaches and referees away from play (huddles, warm-ups, the bench) and
+interviews; `arena` for in-venue entertainment the detector should also mute:
+crowd and fan shots, the anthem, halftime and timeout performers, mascots,
+dance teams, fan contests, promotional ceremonies and venue graphics; `ad` for a full-screen
 paid commercial, including political ads; `promo` for network or program
 promotions; `break` for a quiet break screen or filler with no commercial or
 program coverage; and `overlay` for sponsor graphics or an ad read while game
@@ -202,3 +205,66 @@ model now mutes more network promos, which the decision treats as neither
 right nor wrong. The installed model covers the NBA, NHL, NFL, college
 football and EPL; EPL rests on one held-out match. WNBA has no held-out ads and
 stays disabled, and other soccer leagues have no labeled footage yet.
+
+## Pretrained image features (current model)
+
+On 2 November we replaced the small MobileNetV3 student with Apple's pretrained
+MobileCLIP2-S0 image encoder (from `open_clip`) and two logistic-regression
+heads. The encoder has seen commercials, dancers and crowds in its pretraining,
+so the labeled frames only have to set the boundary:
+
+- The ad head separates `ad` from everything that keeps sound; studio frames
+  are weighted four times, because desks and graphics resemble ads.
+- The show head has one class per label and mutes `arena`: dance teams,
+  halftime and timeout acts, fan contests, fan cams ("fan of the game", dance
+  cam, kiss cam), mascot acts, bands and light shows.
+- Crowd reaction shots, the anthem and ceremonies, warm-ups and huddles stay
+  `bench` and keep sound.
+- Playback uses the lower of the two scores, so a frame is muted when either
+  head says so.
+
+`sportscli/tools/train_clip_ad_model.py` embeds every 2 seconds of each
+recording once (about 54 frames per second on an M2 GPU, so 30 hours of video
+takes half an hour), caches the features, and then fits both heads in about a
+second. It exports the encoder and heads as one 46 MB float TFLite model that
+`ai_ad_worker.py` runs unchanged. The model takes the whole frame squashed to
+256x256, so a corner score bug is never cropped, and runs in about 66 ms per
+frame on an M2 CPU with two threads. The tool needs a separate developer
+environment with torch, open_clip_torch, scikit-learn, Pillow and
+litert-torch.
+
+```sh
+python -m sportscli.tools.train_clip_ad_model ~/ad-data/dataset.json \
+  --evaluate-only --holdout <broadcast> ...                              # held-out report only
+python -m sportscli.tools.train_clip_ad_model ~/ad-data/dataset.json \
+  --holdout <broadcast> --leagues nba nhl nfl ncaaf epl --install       # export and install
+```
+
+The experiment used the v4 folds. The heads were trained without the held-out
+broadcasts, with the same playback decision and thresholds:
+
+| Held-out set | Paid ads muted (v4 → now) | Game coverage muted (v4 → now) | Studio (v4 → now) |
+|---|---|---|---|
+| Fold A (NHL, college football, EPL, NBA, NFL Network) | 1227 → 2022 of 2147 | 7 → 17 of 9396 | 1 → 3 of 236 |
+| Fold B (college football, NHL, SportsCenter, NBA) | 1602 → 2508 of 2589 | 33 → 29 of 9153 | 9 → 75 of 715 |
+| NBA Celtics at Magic, NBC Sports Boston (unseen) | 56 → 168 of 179 | 0 → 0 of 811 | none |
+| NFL Ravens at Bills (unseen) | 311 → 658 of 690 | 0 → 0 of 1865 | 0 → 0 of 49 |
+
+Those rows are for the ad head alone. Adding the show head and the
+studio weight changes them as follows:
+
+- Fold A mutes 37% of arena show samples (114/310).
+- Fold B mutes 48% (219/461), and studio false mutes fall to 34/715.
+- Game coverage muted rises to 0.4% in fold A and 1% in fold B (2.4% on the
+  Knicks broadcast).
+- Most of those game mutes are pregame intro videos, light shows and Prime
+  Video promos labeled as game coverage. A few are real play.
+
+Arena labels come from about 1,750 bench samples, sorted first by zero-shot
+text prompts and then checked by eye. They cover few broadcasts, mostly NBA
+league feeds that show the arena during breaks. Show muting is therefore the
+least certain part.
+
+The installed model enables NBA, NHL, NFL, college football and EPL, the
+leagues with held-out evaluations. Bundesliga and WNBA footage helps training
+but has not been evaluated.
