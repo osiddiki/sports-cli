@@ -89,6 +89,16 @@ Schedule searches query at most three relevant leagues. The app fetches broadcas
 
 When using mpv, close its window or press `q` in mpv to return to the picker. IINA and Celluloid open separate windows, leaving the picker usable. **Keep the terminal app open while playing a local relay stream.**
 
+## Watch on your phone
+
+`sports --web` (or `./sports-cli --web`) serves a phone-friendly page from this computer: live games with their checked and ranked sources, and Live TV channels. Video plays in the phone's browser. The computer does the source finding, checks, backup sources and headers, so it must stay on and keep the command running.
+
+1. Run `sports --web`. It prints one or more links, such as `http://your-mac.tailnet.ts.net:8765/abc123/`.
+2. Open a link on your phone. On the same Wi-Fi, any of them works. Away from home, install [Tailscale](https://tailscale.com) on both devices and use the `ts.net` or `100.x` link.
+3. On an iPhone, tap Share, then **Add to Home Screen**, to open it like an app.
+
+The random part of the link is its password. It stays the same between runs, so bookmarks keep working, and it's stored in your config file as `web_token`; delete that line to get a new link. Anyone with the link who can reach your computer can watch through it, so share it only with people you trust. Use `--web-port` to pick another port. Replays, search and the ad detector are terminal-only for now.
+
 ## Controls
 
 The app opens on **Home**: live sports, replays, live TV, search and settings. Every key means the same thing on every screen, and each screen's footer lists the keys that work there.

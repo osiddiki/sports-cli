@@ -2738,6 +2738,8 @@ def main():
     mute.add_argument('--ad-mute', action='store_true', help='Mute explicitly marked replay ad breaks in mpv for this run')
     mute.add_argument('--ai-ad-mute', action='store_true', help='Use the optional experimental local NBA ad detector in mpv')
     mute.add_argument('--ai-ad-observe', action='store_true', help='Show NBA ad predictions without changing audio')
+    parser.add_argument('--web', action='store_true', help='Serve a phone-friendly web page on this network instead of the terminal UI')
+    parser.add_argument('--web-port', type=int, default=8765, help='Port for --web (default: 8765)')
     parser.add_argument('--install-ad-model', action='store_true', help='Explicitly download and install the optional local NBA ad detector')
     parser.add_argument('--record', metavar='DIR', type=pathlib.Path,
                         help='Save what mpv plays to DIR for this run, e.g. to label ad-detector training footage')
@@ -2753,6 +2755,9 @@ def main():
         return 2
     if args.addon: config['addon'] = args.addon
     if args.resolver_dir: config['resolver_dir'] = args.resolver_dir
+    if args.web:
+        from . import web
+        return web.serve(config, port=args.web_port)
     if args.list and args.tv:
         channels, errors = tv.directory()
         for channel in channels:
