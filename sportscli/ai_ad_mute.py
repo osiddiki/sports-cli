@@ -212,7 +212,14 @@ class PlaybackGate:
         return True
 
 
+class WorkerBusy(OSError):
+    """The detector has not answered yet; it may still answer late."""
+
+
 class Monitor:
+    # A frame that takes longer is skipped; only a detector silent this long is given up on.
+    frame_timeout, late_limit = 3, 30
+
     def __init__(self, socket_path, directory, python=None, model=None, interval=2, mute=True, on_break=None):
         default_python, default_model = installation_paths()
         self.path, self.directory = socket_path, pathlib.Path(directory)
@@ -251,7 +258,7 @@ class Monitor:
             if line is None: raise OSError('AI detector exited')
             value = json.loads(line)
             if isinstance(value, dict): return value
-        raise OSError('AI detector did not respond')
+        raise WorkerBusy('AI detector did not respond')
 
     def run(self):
         connection = None; state = MuteState(); command = None; on_break = False
@@ -284,7 +291,7 @@ class Monitor:
             if not self._read_worker(30).get('ready'): raise OSError('AI detector failed to load')
             command('show-text', 'Local NBA ad detection active' if self.mute else 'Ad detection preview: audio unchanged', 2000)
             decision = Decision(); playback = PlaybackGate(); failures = 0; seen_epoch = playback_epoch
-            manual_override = False
+            manual_override = False; late_since = None
             def sync_break():
                 nonlocal on_break
                 if not self.on_break or state.in_ad == on_break: return
@@ -310,6 +317,13 @@ class Monitor:
                     command('show-text', 'Ad detection paused: frames unavailable', 3000)
             while not self.stopped.is_set():
                 started = time.monotonic()
+                if late_since is not None:
+                    # Wait for the slow frame's reply, so replies keep pairing with their frames.
+                    try: self._read_worker(self.interval)
+                    except WorkerBusy:
+                        if self.stopped.is_set() or time.monotonic() - late_since > self.late_limit: raise
+                        unavailable_frame(); continue
+                    late_since = None
                 paused = command('get_property', 'pause')
                 position = command('get_property', 'time-pos')
                 if playback_epoch != seen_epoch:
@@ -330,7 +344,11 @@ class Monitor:
                     unavailable_frame()
                     self.stopped.wait(self.interval); continue
                 self.process.stdin.write(json.dumps({'image':str(image)})+'\n'); self.process.stdin.flush()
-                response = self._read_worker(3)
+                try: response = self._read_worker(self.frame_timeout)
+                except WorkerBusy:
+                    # One slow frame, for example while the computer is busy, is no reason to stop for the game.
+                    if self.stopped.is_set(): raise
+                    image.unlink(missing_ok=True); late_since = time.monotonic(); continue
                 image.unlink(missing_ok=True)
                 score = response.get('score')
                 if isinstance(score, bool) or not isinstance(score, (int,float)) or not 0 <= score <= 1:

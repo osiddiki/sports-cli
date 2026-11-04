@@ -189,6 +189,27 @@ class AiAdMuteTests(unittest.TestCase):
             self.assertTrue(player.wait_for(lambda: not monitor.thread.is_alive()))
             self.assertFalse(player.muted)
 
+    def test_slow_frame_is_skipped_without_stopping_detection(self):
+        with self.detector() as (player, monitor), \
+             patch.object(monitor, 'frame_timeout', .2), patch.object(monitor, 'late_limit', 5):
+            self.assertTrue(player.wait_for(lambda: player.muted))
+            player.delay = .6
+            frames = player.frames
+            self.assertTrue(player.wait_for(lambda: player.frames > frames))
+            player.delay = 0; player.score = .95
+            self.assertTrue(player.wait_for(lambda: not player.muted))
+            self.assertTrue(monitor.thread.is_alive())
+            player.score = .01
+            self.assertTrue(player.wait_for(lambda: player.muted))
+
+    def test_silent_worker_is_given_up_after_the_late_limit(self):
+        with self.detector() as (player, monitor), \
+             patch.object(monitor, 'frame_timeout', .1), patch.object(monitor, 'late_limit', .3):
+            self.assertTrue(player.wait_for(lambda: player.muted))
+            player.delay = 60
+            self.assertTrue(player.wait_for(lambda: not monitor.thread.is_alive()))
+            self.assertFalse(player.muted)
+
     def test_invalid_prediction_releases_mute(self):
         for score in (True, float('nan')):
             with self.subTest(score=score), self.detector() as (player, monitor):
