@@ -217,12 +217,15 @@ class Merged:
     """Download live segments ahead of the player and fail over between equivalent sources."""
     IDLE = 45          # stop downloading when the player has not asked for a playlist
     CACHE_BYTES = 192 * 1024 * 1024
+    RETURN_AFTER = 30  # seconds the chosen source must stay healthy before playback returns to it
+    LAG_MEMORY = 300   # seconds a source left for being too slow is not switched back to for speed
 
     def __init__(self, relay, sid, sources):
         self.relay, self.sid = relay, sid
         # Each source: page URL, headers, resolved media playlist URL, last playlist, health.
         self.sources = [{'url':url, 'headers':headers or {}, 'media':None, 'playlist':None,
-                         'advanced':time.monotonic(), 'newest':None, 'failures':0} for url, headers in sources]
+                         'advanced':time.monotonic(), 'newest':None, 'failures':0,
+                         'pace':[], 'lagging':None, 'up':None} for url, headers in sources]
         self.active = 0
         self.timeline = merge.Timeline()
         self.cache = {}; self.cache_bytes = 0
@@ -234,6 +237,7 @@ class Merged:
         self.switches = 0
         self.failed = {}
         self.loads = {}  # source index -> pending playlist load
+        self.exact = set()  # sources whose timestamps matched the chosen source's, so switching back is exact
         self.loader = concurrent.futures.ThreadPoolExecutor(max_workers=len(sources))
 
     def fetch(self, url, headers, timeout, limit=MAX_SEGMENT, attempts=2):
@@ -289,19 +293,40 @@ class Merged:
     def stop(self): self.stopped.set(); self.loader.shutdown(wait=False)
 
     def switch(self, reason):
+        now = time.monotonic()
+        if reason == 'falling behind': self.sources[self.active]['lagging'] = now
         for offset in range(1, len(self.sources)):
             candidate = (self.active + offset) % len(self.sources)
-            if self.healthy(candidate):
-                self.active = candidate; self.switches += 1
+            # A slow source still beats a stalled one, but leaving one slow source for another gains nothing.
+            if self.healthy(candidate) and not (reason == 'falling behind' and self.lagged(candidate, now)):
+                self.active = candidate; self.switches += 1; self.sources[candidate]['pace'] = []
                 return True
         return False
+
+    def lagged(self, index, now):
+        lagging = self.sources[index]['lagging']
+        return lagging is not None and now - lagging < self.LAG_MEMORY
+
+    def steer(self):
+        """Leave a stalled source or one slower than real time; return to the chosen source once it is steady again."""
+        now = time.monotonic()
+        chosen, source = self.sources[0], self.sources[self.active]
+        chosen['up'] = (chosen['up'] or now) if self.healthy(0) else None
+        if not self.healthy(self.active):
+            self.switch('stalled')
+        elif len(source['pace']) == 2 and min(source['pace']) > 1:
+            # Its playlist advances, so it looks healthy, but the player's buffer drains while it downloads.
+            self.switch('falling behind')
+        elif (self.active != 0 and self.active in self.exact and chosen['up'] is not None
+              and now - chosen['up'] >= self.RETURN_AFTER and not self.lagged(0, now)):
+            self.active = 0; self.switches += 1; chosen['pace'] = []
 
     def run(self):
         while not self.stopped.is_set():
             if time.monotonic() - self.requested > self.IDLE: return
             started = time.monotonic()
             self.refresh()
-            if not self.healthy(self.active): self.switch('stalled')
+            self.steer()
             progressed = self.pump()
             target = (self.sources[self.active]['playlist'] or merge.Playlist(4, [], False)).target
             if not progressed:
@@ -338,6 +363,7 @@ class Merged:
         measured, expected = merge.first_pts(data), self.timeline.end_pts
         # Unrelated encoders have unrelated clocks; keep the live-edge estimate then.
         if measured is None or abs(merge.pts_seconds(expected, measured)) > 90: return plan, {first.url: data}
+        self.exact.add(self.sources.index(source))
         position = segments.index(first)
         best = merge.realign(segments, position, measured, expected)
         if best >= len(segments): return [], {}
@@ -355,7 +381,7 @@ class Merged:
         for segment, discontinuity in plan[:3]:
             timeout = max(4, min(15, segment.duration * 1.5))
             data = prefetched.pop(segment.url, None)
-            owner = source
+            owner, started = source, time.monotonic()
             candidates = [] if data else [(source, segment.url), *self.alternates(segment)]
             for owner, url in candidates:
                 try:
@@ -365,6 +391,8 @@ class Merged:
                     break
                 except (OSError, ValueError, urllib.error.URLError):
                     continue
+            if candidates and owner is source and data is not None:
+                source['pace'] = (source['pace'] + [(time.monotonic() - started) / max(.1, segment.duration)])[-2:]
             if data is None:
                 source['failures'] += 1
                 if self.switch('segment failed'): return True

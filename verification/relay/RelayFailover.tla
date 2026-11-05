@@ -10,8 +10,11 @@
 
    Code map:
      Publish        a source's playlist gains its next live segment
-     Fail, Recover  Merged.healthy() turning false or true for a source
+     Fail, Recover  Merged.healthy() turning false or true for a source, or Merged.steer()
+                    finding the active source slower than real time ("falling behind")
      Switch         Merged.switch(): the active source is unhealthy, the other is healthy
+     Return         Merged.steer(): back to the chosen source once it is steady, only from a
+                    backup whose timestamps matched it (Merged.exact)
      PumpSame       Timeline.plan() continuing by cursor on the source last used
      PumpResume     Timeline.plan() + Merged.align() after a switch: by segment name,
                     program date, transport-stream timestamp (merge.realign), or,
@@ -77,6 +80,13 @@ Switch ==
     /\ \E s \in Sources \ {active} : healthy[s] /\ active' = s
     /\ UNCHANGED <<edge, healthy, last, lastFrom, skipped, repeat, jump>>
 
+\* Back to the chosen source while the backup still works. The relay only does this
+\* from a backup that Merged.align() found on the same clock, which is the "pts" case.
+Return ==
+    /\ Resume = "pts" /\ active = "backup" /\ healthy["main"]
+    /\ active' = "main"
+    /\ UNCHANGED <<edge, healthy, last, lastFrom, skipped, repeat, jump>>
+
 \* Nothing committed yet: start up to three segments behind the live edge.
 Start ==
     /\ last = 0 /\ healthy[active] /\ Published(active) > 0
@@ -124,7 +134,7 @@ Skip ==
 Next ==
     \/ Publish
     \/ \E s \in Sources : Fail(s) \/ Recover(s)
-    \/ Switch \/ Start \/ PumpSame \/ PumpResume \/ Skip
+    \/ Switch \/ Return \/ Start \/ PumpSame \/ PumpResume \/ Skip
 
 Spec == Init /\ [][Next]_vars
 

@@ -20,6 +20,19 @@ The repeats come from one fallback: when the new source has not published the ma
 segment yet, `Timeline.plan()` keeps the same distance from the live edge instead of
 waiting. `tests/test_relay_model.py` replays these paths on the real code.
 
+## Slow sources and switching back
+
+`Merged.steer()` makes every switch decision. Besides a stalled source, it leaves one whose last two
+segments each took longer to download than they last: the playlist still advances, so the source looks
+healthy, but the player's buffer drains. A source left that way is not switched back to for speed for five
+minutes. Once the chosen source has been healthy for 30 s, playback returns to it, but only from a backup
+whose timestamps matched it (`Merged.exact`), because only then is the return exact. The model's
+`Return` action covers that move, and every rule still holds.
+
+On a live NBA game (2026-11-04, StreamFree 1080p with its 540p copy as backup), a source made slower than
+real time used to stall mpv about 10 s in 75 s with no switch, and a 15 s outage left playback on 540p for
+the rest of the game. With `steer()` both switch without a stall, repeat or skip.
+
 ## End-to-end drill and a live game
 
 `verification/relay/drill.py` cuts a test stream, serves it as two live HLS sources on localhost,

@@ -11,7 +11,7 @@ description: Formally check the live relay's backup-source failover (sportscli/r
 
 ## Does a change touch this?
 
-Yes if it edits any of: `merge.Timeline` (`plan`, `commit`, `skip`, `needs_alignment`, `observe`), `merge.realign`, `merge.pts_seconds`, `merge.first_pts`, or `relay.Merged` (`pump`, `align`, `switch`, `healthy`, `alternates`). Run `git diff 7362cbe -- sportscli/merge.py sportscli/relay.py` to see what changed since the last sync.
+Yes if it edits any of: `merge.Timeline` (`plan`, `commit`, `skip`, `needs_alignment`, `observe`), `merge.realign`, `merge.pts_seconds`, `merge.first_pts`, or `relay.Merged` (`pump`, `align`, `switch`, `steer`, `healthy`, `alternates`). Run `git diff 7362cbe -- sportscli/merge.py sportscli/relay.py` to see what changed since the last sync.
 
 ## Run
 
@@ -54,4 +54,4 @@ The model is in `verification/relay/RelayFailover.tla`; its header maps each act
 
 ## Coverage and sync
 
-Covers `sportscli/merge.py` (Timeline, realign) and `sportscli/relay.py` (Merged.pump, align, switch, healthy) as of commit **7362cbe**. Leaves out: segment downloads and retries other than skip, playlist parsing, encryption and init maps (the relay refuses those streams), more than two sources, and timing beyond segment order. Bounds: 6 segments, backup 1 segment behind. Move the sync commit forward only after confirming the model's actions still describe the code at the new commit. Diagrams and the summary for readers live in `docs/relay-failover.md`.
+Covers `sportscli/merge.py` (Timeline, realign) and `sportscli/relay.py` (Merged.pump, align, switch, steer, healthy) as of commit **7362cbe** plus `steer`: leaving a source slower than real time maps to Fail, and returning to the chosen source from a same-clock backup is the Return action. Leaves out: segment downloads and retries other than skip, playlist parsing, encryption and init maps (the relay refuses those streams), more than two sources, and timing beyond segment order. Bounds: 6 segments, backup 1 segment behind. Move the sync commit forward only after confirming the model's actions still describe the code at the new commit. Diagrams and the summary for readers live in `docs/relay-failover.md`.
