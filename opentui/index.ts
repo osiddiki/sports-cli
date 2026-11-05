@@ -56,8 +56,8 @@ const phoneLinks: string[] = await (async () => {
   throw new Error("the Sports CLI server stopped before it was ready")
 })()
 const token = phoneLinks[0]!.match(/:\d+\/([A-Za-z0-9_-]+)\//)![1]!
-// A Wi-Fi address works for any phone at home; Tailscale names only for phones on Tailscale.
-const homeLink = phoneLinks.find((link) => /\/\/(192\.168|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(link)) ?? phoneLinks[0]!
+// The server lists the Tailscale link first: it works at home and away, while the Wi-Fi link needs the same network.
+const homeLink = phoneLinks[0]!
 const base = `http://127.0.0.1:${port}/${token}/`
 
 async function api<T>(route: string, query: Record<string, string> = {}): Promise<T> {
@@ -73,9 +73,9 @@ const renderer = await createCliRenderer({ exitOnCtrlC: true, backgroundColor: C
 
 const app = new BoxRenderable(renderer, { id: "app", flexDirection: "column", width: "100%", height: "100%", padding: 1, gap: 1 })
 const header = new BoxRenderable(renderer, { id: "header", flexDirection: "row", height: 1, justifyContent: "space-between" })
-const brand = new TextRenderable(renderer, { id: "brand", content: t`${bold(fg(C.focus)("● SPORTS"))}${fg(C.muted)("  live games, sources and TV")}` })
+const brand = new TextRenderable(renderer, { id: "brand", content: t`${bold(fg(C.focus)("● SPORTS"))}` })
 const clock = new TextRenderable(renderer, { id: "clock", content: "" })
-const phone = new TextRenderable(renderer, { id: "phone", content: t`${fg(C.muted)("phone ")}${fg(C.text)(homeLink)}${fg(C.muted)("  p QR code   ")}` })
+const phone = new TextRenderable(renderer, { id: "phone", content: t`${fg(C.muted)("phone ")}${fg(C.text)(homeLink)}${fg(C.muted)("  p QR code    ")}` })
 const headerRight = new BoxRenderable(renderer, { id: "header-right", flexDirection: "row" })
 headerRight.add(phone)
 headerRight.add(clock)

@@ -262,8 +262,9 @@ def addresses():
     try:
         status = json.loads(subprocess.run([command, 'status', '--json'], capture_output=True, timeout=5).stdout)
         me = status.get('Self') or {}
+        # The name and the 100.x address reach the same computer; list the address only when there is no name.
         if me.get('DNSName'): found.append(me['DNSName'].rstrip('.'))
-        found.extend(ip for ip in me.get('TailscaleIPs') or [] if '.' in ip)
+        else: found.extend(ip for ip in me.get('TailscaleIPs') or [] if '.' in ip)
     except (OSError, ValueError, subprocess.TimeoutExpired):
         pass
     try:
