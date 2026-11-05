@@ -32,6 +32,18 @@ python3 -m unittest tests.test_relay_model -v    # the real code against the mod
 
 Read every result, pass or fail, with the pstack `/statechart` skill on `verification/relay/RelayFailover.tla` with that config and `verification/relay/view.mjs`: it gives each broken rule's shortest path in plain words, and a chart when it passes.
 
+## Drill the real relay
+
+```sh
+python3 verification/relay/drill.py --mpv     # about a minute; needs ffmpeg and mpv
+python3 verification/relay/drill.py --only "other encoder" --trace
+```
+
+It runs the real relay against two local live sources, breaks the primary mid-stream, and reports
+seconds repeated, seconds skipped, the longest wait and mpv stalls. Expect zero repeats and skips
+when the backup shares the primary's clock, and 1 to 5 s of repeat or skip with another encoder
+(table in `docs/relay-failover.md`). A repeat with a shared clock, or any freeze, is a regression.
+
 ## Real bug or modeling error?
 
 The model is in `verification/relay/RelayFailover.tla`; its header maps each action to the code. When a rule breaks, replay the path on the real code (as `tests/test_relay_model.py` does): build two playlists, commit on one, call `Timeline.plan()` on the other, and apply `merge.realign` when `needs_alignment` is true. If the real code does not repeat, the model is wrong: fix the model to match the code. Never weaken `NoRepeat`, `NoJump` or `OnlyPublished` to make a check pass.
