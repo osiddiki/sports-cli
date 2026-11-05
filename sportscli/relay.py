@@ -216,6 +216,7 @@ def _media(data):
 class Merged:
     """Download live segments ahead of the player and fail over between equivalent sources."""
     IDLE = 45          # stop downloading when the player has not asked for a playlist
+    SAME_CLOCK = 90    # transport-stream timestamps this close are one encoder's clock, which realigns exactly
     CACHE_BYTES = 192 * 1024 * 1024
     RETURN_AFTER = 30  # seconds the chosen source must stay healthy before playback returns to it
     LAG_MEMORY = 300   # seconds a source left for being too slow is not switched back to for speed
@@ -238,6 +239,7 @@ class Merged:
         self.failed = {}
         self.loads = {}  # source index -> pending playlist load
         self.exact = set()  # sources whose timestamps matched the chosen source's, so switching back is exact
+        self.kept = list(range(len(sources)))  # which of the offered sources survived prepare, in order
         self.loader = concurrent.futures.ThreadPoolExecutor(max_workers=len(sources))
 
     def fetch(self, url, headers, timeout, limit=MAX_SEGMENT, attempts=2):
@@ -277,8 +279,28 @@ class Merged:
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.sources)) as pool:
             results = list(pool.map(lambda i: self._try_load(i), range(len(self.sources))))
         if not results[0]: return 0
-        self.sources = [s for s, ok in zip(self.sources, results) if ok]
+        usable = [i for i, ok in enumerate(results) if ok]
+        if len(usable) > 2: usable = [0, self.best_backup(usable)]
+        self.sources, self.kept = [self.sources[i] for i in usable], usable
         return len(self.sources)
+
+    def best_backup(self, usable):
+        """Of several working backups, the first that lines up with the primary, else the first.
+
+        Sources from different encoders share no clock or segment names, so switching to them replays
+        or skips seconds; one that lines up resumes exactly where the primary stopped."""
+        return next((i for i in usable[1:] if self.lines_up(self.sources[0], self.sources[i])), usable[1])
+
+    def lines_up(self, main, other):
+        a, b = main['playlist'].segments, other['playlist'].segments
+        if not a or not b: return False
+        if {s.name for s in a} & {s.name for s in b}: return True
+        if a[-1].pdt is not None and b[-1].pdt is not None: return abs(a[-1].pdt - b[-1].pdt) <= 30
+        try:
+            clocks = [merge.first_pts(_media(self.fetch(source['playlist'].segments[-1].url, source['headers'], 15)))
+                      for source in (main, other)]
+        except (OSError, ValueError, urllib.error.URLError): return False
+        return None not in clocks and abs(merge.pts_seconds(*clocks)) <= self.SAME_CLOCK
 
     def _try_load(self, index):
         try: self.load(index); return True
@@ -547,6 +569,11 @@ class Relay:
         with self.lock: self.merged[sid] = session
         session.start()
         return self.base + '/m/' + sid + '.m3u8', usable
+
+    def kept(self, merged_url):
+        """Positions, among the sources offered to add_merged, of the ones a merged stream uses."""
+        session = self.merged.get(merged_url.rsplit('/', 1)[-1].removesuffix('.m3u8'))
+        return session.kept if session else None
 
     def get(self, path):
         path = urllib.parse.urlsplit(path).path

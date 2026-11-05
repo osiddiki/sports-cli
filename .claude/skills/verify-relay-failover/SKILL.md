@@ -42,7 +42,7 @@ python3 verification/relay/drill.py --only "other encoder" --trace
 It runs the real relay against two local live sources, breaks the primary mid-stream, and reports
 seconds repeated, seconds skipped, the longest wait and mpv stalls. Expect zero repeats and skips
 when the backup shares the primary's clock, and 1 to 5 s of repeat or skip with another encoder
-(table in `docs/relay-failover.md`). A repeat with a shared clock, or any freeze, is a regression.
+(table in `docs/relay-failover.md`). A repeat with a shared clock, or any freeze, is a regression. With three sources the relay must keep the one that lines up (`Merged.best_backup`), so "other encoder listed first, same stream second" must show no repeat.
 
 ## Real bug or modeling error?
 

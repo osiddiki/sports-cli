@@ -2270,21 +2270,29 @@ class App:
                                        item.kind == 'ppv'))
         return options[:2]
 
-    def merge_backup(self, url, headers, pending, budget=10):
-        """Serve the selected source with the first backup that resolves in time."""
-        sources, label = [(url, headers)], None
-        try:
-            futures = {future: backup for future, backup in pending}
-            for future in concurrent.futures.as_completed(futures, timeout=budget):
-                try: sources.append(future.result()); label = futures[future].source; break
-                except Exception: continue
-        except concurrent.futures.TimeoutError:
-            pass
-        if len(sources) == 1: return url, headers
-        try: merged, usable = self.get_relay().add_merged(sources)
+    def merge_backup(self, url, headers, pending, budget=10, grace=3):
+        """Serve the selected source with the backup that lines up with it best.
+
+        Waits for the first backup to resolve, then a short grace for the rest, so a source from the
+        same encoder is not passed over for one that merely answered sooner."""
+        futures = {future: backup for future, backup in pending}
+        order, found, remaining, deadline = [future for future, _ in pending], [], set(futures), time.monotonic() + budget
+        while remaining and time.monotonic() < deadline:
+            done, remaining = concurrent.futures.wait(remaining, timeout=max(0, deadline - time.monotonic()),
+                                                      return_when=concurrent.futures.FIRST_COMPLETED)
+            for future in done:
+                if future.exception() is not None: continue
+                if not found: deadline = min(deadline, time.monotonic() + grace)
+                found.append(future)
+        if not found: return url, headers
+        found.sort(key=order.index)
+        sources = [(url, headers)] + [future.result() for future in found]
+        relay = self.get_relay()
+        try: merged, usable = relay.add_merged(sources)
         except (OSError, ValueError, DependencyError): return url, headers
         if not merged or usable < 2: return url, headers
-        self.stream_notes[merged] = f' Backup: {label}.'
+        kept = getattr(relay, 'kept', lambda _: None)(merged) or [0, 1]
+        self.stream_notes[merged] = f' Backup: {futures[found[kept[1] - 1]].source}.'
         return merged, {}
 
     def show_stream_url(self, url, headers):

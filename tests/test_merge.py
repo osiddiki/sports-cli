@@ -279,6 +279,80 @@ class BackupSelectionTest(unittest.TestCase):
 
 
 
+class BackupChoiceTest(unittest.TestCase):
+    """With several working backups the relay keeps the one that resumes exactly where the primary stopped."""
+    def prepared(self, sources, names, clocks):
+        server, probed = relay.Relay(), []
+        def fetch(url, *args, **kwargs):
+            if url.endswith('.m3u8'):
+                host = url.split('/')[2]
+                return ('\n'.join(['#EXTM3U', '#EXT-X-TARGETDURATION:2', '#EXT-X-MEDIA-SEQUENCE:0'] +
+                                  [f'#EXTINF:2,\n{names[host]}{n:03d}.ts' for n in range(6)]) + '\n').encode()
+            probed.append(url)
+            return ts_with_pts(clocks[url.split('/')[2]] * 90000)
+        try:
+            with patch.object(relay, '_download', side_effect=fetch), patch.object(relay.Merged, 'start'):
+                url, usable = server.add_merged([(f'https://{host}/live.m3u8', {}) for host in sources])
+            session = next(iter(server.merged.values()))
+            return url, usable, session, server.kept(url), probed
+        finally:
+            server.close()
+
+    def test_prefers_the_backup_sharing_the_primary_clock(self):
+        names = {'main': 'a', 'other': 'b', 'same': 'c'}
+        clocks = {'main': 1000, 'other': 90_000, 'same': 1010}
+        _, usable, session, kept, _ = self.prepared(['main', 'other', 'same'], names, clocks)
+        self.assertEqual((usable, kept), (2, [0, 2]))
+        self.assertIn('same', session.sources[1]['url'])
+
+    def test_prefers_the_backup_sharing_segment_names(self):
+        names = {'main': 'seg', 'other': 'x', 'mirror': 'seg'}
+        clocks = {'main': 1000, 'other': 50_000, 'mirror': 90_000}
+        _, _, session, kept, _ = self.prepared(['main', 'other', 'mirror'], names, clocks)
+        self.assertEqual(kept, [0, 2])
+
+    def test_a_backup_sharing_names_needs_no_segment_download(self):
+        names = {'main': 'seg', 'mirror': 'seg', 'other': 'x'}
+        _, _, _, kept, probed = self.prepared(['main', 'mirror', 'other'], names, {'main': 1000, 'mirror': 90_000, 'other': 1000})
+        self.assertEqual((kept, probed), ([0, 1], []))
+
+    def test_keeps_the_first_backup_when_none_line_up(self):
+        names = {'main': 'a', 'one': 'b', 'two': 'c'}
+        clocks = {'main': 1000, 'one': 50_000, 'two': 90_000}
+        _, _, _, kept, _ = self.prepared(['main', 'one', 'two'], names, clocks)
+        self.assertEqual(kept, [0, 1])
+
+    def test_a_single_backup_is_used_as_is_without_probing(self):
+        names = {'main': 'a', 'one': 'b'}
+        _, usable, _, kept, probed = self.prepared(['main', 'one'], names, {'main': 1000, 'one': 90_000})
+        self.assertEqual((usable, kept, probed), (2, [0, 1], []))
+
+    def test_merge_backup_waits_a_moment_for_every_candidate_and_names_the_one_kept(self):
+        app = BackupSelectionTest.make_app(self)
+        first, second = concurrent.futures.Future(), concurrent.futures.Future()
+        first.set_result(('https://b/live.m3u8', {})); second.set_result(('https://c/live.m3u8', {}))
+        offered = []
+        def add_merged(sources): offered.append(sources); return 'http://127.0.0.1:1/m/x.m3u8', 2
+        local = SimpleNamespace(add_merged=add_merged, kept=lambda url: [0, 2])
+        app.get_relay = lambda: local
+        result = app.merge_backup('https://a/live.m3u8', {}, [(first, SimpleNamespace(source='B')), (second, SimpleNamespace(source='C'))])
+        self.assertEqual(result, ('http://127.0.0.1:1/m/x.m3u8', {}))
+        self.assertEqual([url for url, _ in offered[0]], ['https://a/live.m3u8', 'https://b/live.m3u8', 'https://c/live.m3u8'])
+        self.assertEqual(app.stream_notes['http://127.0.0.1:1/m/x.m3u8'], ' Backup: C.')
+
+    def test_merge_backup_stops_waiting_for_a_slow_candidate_after_the_grace(self):
+        app = BackupSelectionTest.make_app(self)
+        ready, slow = concurrent.futures.Future(), concurrent.futures.Future()
+        ready.set_result(('https://b/live.m3u8', {}))
+        offered = []
+        local = SimpleNamespace(add_merged=lambda sources: (offered.append(sources), ('http://127.0.0.1:1/m/x.m3u8', 2))[1])
+        app.get_relay = lambda: local
+        started = relay.time.monotonic()
+        app.merge_backup('https://a/live.m3u8', {}, [(ready, SimpleNamespace(source='B')), (slow, SimpleNamespace(source='C'))], grace=.3)
+        self.assertLess(relay.time.monotonic() - started, 2)
+        self.assertEqual(len(offered[0]), 2)
+
+
 class RelayServerTests(unittest.TestCase):
     def test_player_dropping_a_kept_alive_connection_prints_nothing(self):
         import contextlib, io, socket, struct, time

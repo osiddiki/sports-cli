@@ -48,6 +48,7 @@ Segment contents are known from how they were cut, so the numbers are in seconds
 | Other encoder | going down | 1.2 s | 0 s | 2.0 s | 0 |
 | Other encoder | freezing | 0 s | 0.8 s | 4.1 s | 0 |
 | Other encoder, 3 segments behind | going down | 5.2 s | 0 s | 2.0 s | 0 |
+| Other encoder listed first, same stream second | going down | 0 s | 0 s | 2.5 s | 0 |
 
 Playback never froze in any case. When the sources share a clock the switch is invisible. With
 another encoder the relay keeps the live-edge distance, so the viewer sees 1 to 5 s repeat or a
@@ -58,6 +59,12 @@ common. Only two pairs could be spliced exactly: two NTV servers on the same clo
 segment names, and StreamFree with NBA Monster, which share every segment name 4 s apart. The other
 pairs differ by hundreds to tens of thousands of seconds, so a backup picked at random usually
 falls in the "other encoder" rows.
+
+So the app no longer takes the first backup that resolves. `App.merge_backup` waits up to 3 s after
+the first one for the rest, hands every candidate to `Relay.add_merged`, and `Merged.prepare` keeps
+the one that lines up with the primary (shared segment names, program dates within 30 s, or
+transport-stream clocks within 90 s), else the first. The last row above shows the effect: before
+this, the drill took the other-encoder source and replayed 1.2 s.
 
 ## How the relay moves between states
 

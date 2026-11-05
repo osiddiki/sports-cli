@@ -114,6 +114,7 @@ SCENARIOS = [
     Scenario('same stream, primary segments vanish', 'same', 'segments'),
     Scenario('other encoder, primary frozen', 'encoder', 'frozen'),
     Scenario('other encoder, backup 3 segments behind, primary down', 'encoder', 'down', delay=3),
+    Scenario('other encoder listed first, same stream second, primary down', ['encoder', 'same'], 'down'),
 ]
 
 
@@ -125,6 +126,7 @@ def play_in_mpv(url, seconds):
     process = subprocess.Popen(['mpv', '--vo=null', '--ao=null', '--no-config', '--msg-level=all=warn', '--cache-pause-wait=2',
                                 f'--input-ipc-server={sock}', url], stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
     stalls, stalled_at, stall_time, position, lock = 0, None, 0.0, 0.0, threading.Lock()
+    opened = time.monotonic()
     def watch():
         nonlocal stalls, stalled_at, stall_time, position
         connection = None
@@ -148,7 +150,8 @@ def play_in_mpv(url, seconds):
                 with lock:
                     if event['name'] == 'time-pos' and isinstance(event.get('data'), (int, float)): position = event['data']
                     if event['name'] == 'paused-for-cache' and 'data' in event:
-                        if event['data'] and stalled_at is None: stalls += 1; stalled_at = time.monotonic()
+                        # The first seconds are buffering before playback, not a stall.
+                        if event['data'] and stalled_at is None and time.monotonic() - opened > 6: stalls += 1; stalled_at = time.monotonic()
                         elif not event['data'] and stalled_at is not None: stall_time += time.monotonic() - stalled_at; stalled_at = None
     threading.Thread(target=watch, daemon=True).start()
     time.sleep(seconds)
@@ -169,18 +172,20 @@ def play_in_mpv(url, seconds):
 def run(scenario, media, seconds, fault_at, with_mpv, trace=False):
     started = time.monotonic() - HEAD_START * SEGMENT
     primary = Feed(media['a'], [p.name for p, _, _ in media['a']], 0, started)
-    if scenario.backup == 'same':
-        backup = Feed(media['a'], [p.name for p, _, _ in media['a']], scenario.delay, started)
-    elif scenario.backup == 'renamed':
-        backup = Feed(media['a'], [f'other-{p.name}' for p, _, _ in media['a']], scenario.delay, started)
-    else:
-        backup = Feed(media['b'], [f'b-{p.name}' for p, _, _ in media['b']], scenario.delay, started)
+    backups = []
+    for index, kind in enumerate([scenario.backup] if isinstance(scenario.backup, str) else scenario.backup):
+        if kind == 'same':
+            backups.append(Feed(media['a'], [p.name for p, _, _ in media['a']], scenario.delay, started))
+        elif kind == 'renamed':
+            backups.append(Feed(media['a'], [f'other-{p.name}' for p, _, _ in media['a']], scenario.delay, started))
+        else:
+            backups.append(Feed(media['b'], [f'b{index}-{p.name}' for p, _, _ in media['b']], scenario.delay, started))
     known = {}
-    for label, feed in (('primary', primary), ('backup', backup)):
+    for label, feed in (('primary', primary), *(('backup', feed) for feed in backups)):
         for path, start, duration in feed.segments:
             known.setdefault(hashlib.sha1(path.read_bytes()).hexdigest(), (label, start, duration))
     server = relay.Relay()
-    merged_url, usable = server.add_merged([(primary.url, {}), (backup.url, {})])
+    merged_url, usable = server.add_merged([(feed.url, {}) for feed in (primary, *backups)])
     if not merged_url: return {'scenario': scenario.name, 'error': f'could not merge ({usable} usable source)'}
     session = next(iter(server.merged.values()))
     begin = time.monotonic()
@@ -214,7 +219,7 @@ def run(scenario, media, seconds, fault_at, with_mpv, trace=False):
               'unknown_segments': sum(1 for label, _, _ in order if label == 'unknown')}
     if trace: result['output'] = [f'{when:5.1f}s {label} content {start:5.1f}-{start + duration:5.1f}' for when, (label, start, duration) in zip(arrivals, order)]
     if with_mpv: result['mpv'] = mpv_result
-    for feed in (primary, backup): feed.server.shutdown()
+    for feed in (primary, *backups): feed.server.shutdown()
     server.close()
     return result
 
