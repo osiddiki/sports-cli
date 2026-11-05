@@ -43,8 +43,8 @@ class Screen:
     def redrawwin(self): pass
 
 
-def make_app():
-    app = nba.App(Screen(), {})
+def make_app(factory=None):
+    app = factory() if factory else nba.App(Screen(), {})
     app.calls = []
     record = lambda name: (lambda *args, **kwargs: app.calls.append(name))
     def refresh_games(): app.games = list(GAMES); app.all_games = list(GAMES); app.loading_games = False; app.calls.append('refresh_games')

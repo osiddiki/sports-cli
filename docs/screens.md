@@ -19,6 +19,8 @@ same thing on every screen:
 Pressing `?` or `,` on its own screen closes it, and `1` or `2` inside that section changes sport.
 Any other key that does nothing on a screen says so on the status line.
 
+The OpenTUI front end (`opentui/`) drives a headless copy of this same app (`sportscli/remote.py`), so it follows the chart without a second implementation.
+
 The statechart lives in `sportscli/screens.py`. `tests/test_screens.py` explores every
 reachable screen state with every key (offline, with sample games, replays and channels)
 and checks that:

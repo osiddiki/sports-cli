@@ -21,7 +21,7 @@ import time
 import urllib.error
 import urllib.parse
 
-from . import app, relay, tv
+from . import app, relay, remote, tv
 
 PORT = 8765
 MIN_VISIBLE = 5
@@ -68,6 +68,13 @@ class Web:
         self.listings, self.proxied = {}, {}
         self.games, self.channels = {}, (0, [])
         self.checks = concurrent.futures.ThreadPoolExecutor(6)
+        self.remote = None
+
+    def screen(self):
+        """The terminal app's screens for the OpenTUI front end, started on its first request."""
+        with self.lock:
+            if self.remote is None: self.remote = remote.Remote(self.config)
+            return self.remote
 
     # Directories
 
@@ -195,6 +202,7 @@ class Web:
     def close(self):
         self.checks.shutdown(wait=False, cancel_futures=True)
         self.player.close()
+        if self.remote: self.remote.close()
 
 
 def serve(config, host='0.0.0.0', port=PORT):
@@ -229,7 +237,10 @@ def serve(config, host='0.0.0.0', port=PORT):
                           'api/games': lambda: web.game_list(query.get('league', 'nba')),
                           'api/channels': web.channel_list,
                           'api/sources': lambda: {'sources': web.listing(query).rows()},
-                          'api/play': lambda: web.play(query)}
+                          'api/play': lambda: web.play(query),
+                          'api/app/view': lambda: web.screen().view(),
+                          'api/app/key': lambda: web.screen().key(query['k'], query.get('text')),
+                          'api/app/exit': lambda: web.screen().exited(int(query.get('code', 0)))}
                 if path not in routes: return self.reply(404, b'Not found', 'text/plain')
                 self.reply(200, json.dumps(routes[path]()).encode(), 'application/json')
             except (BrokenPipeError, ConnectionResetError):
