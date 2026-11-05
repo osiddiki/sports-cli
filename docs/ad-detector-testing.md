@@ -268,3 +268,6 @@ least certain part.
 The installed model enables NBA, NHL, NFL, college football and EPL, the
 leagues with held-out evaluations. Bundesliga and WNBA footage helps training
 but has not been evaluated.
+
+`docs/ad-weight-editing-results.md` compares these trained heads with heads
+written and edited by reasoning, and with two Liquid vision-language models.
