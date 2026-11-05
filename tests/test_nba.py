@@ -95,6 +95,18 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(len(feeds), 1)
         self.assertTrue(errors[0].startswith('StreamFree:'))
 
+    def test_a_truncated_directory_response_does_not_lose_the_other_sources(self):
+        import http.client
+        def fetch(url, **kwargs):
+            if url == nba.PPV: raise http.client.IncompleteRead(b'{"streams": [')
+            return {'streams': {}}
+        monster = [nba.Feed('NBA Monster', 'Server 1', url='https://monster.example/1.m3u8', kind='direct')]
+        with patch.object(nba, 'request', side_effect=fetch), patch.object(nba, 'monster_feeds', return_value=monster), \
+                patch.object(nba, 'directory_feeds', return_value=[]), patch.object(nba, 'ntv_feeds', return_value=[]):
+            feeds, errors = nba.fetch_feeds(self.game, {})
+        self.assertEqual([feed.source for feed in feeds], ['NBA Monster'])
+        self.assertTrue(any(error.startswith('PPV:') for error in errors))
+
     def test_streamfree_presents_each_source_and_resolves_fresh_tokens(self):
         key = 'los-angeles-lakers-vs-la-clippers'
         base = nba.SF_ROOT
