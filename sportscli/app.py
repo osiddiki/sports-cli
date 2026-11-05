@@ -5,6 +5,7 @@ import argparse
 import curses
 import concurrent.futures
 import datetime as dt
+import http.client
 import json
 import os
 import pathlib
@@ -591,7 +592,7 @@ def fetch_feeds(game, config):
         for name, future in futures:
             try:
                 out.extend(future.result())
-            except (OSError, ValueError, KeyError, TypeError) as e:
+            except (OSError, ValueError, KeyError, TypeError, http.client.HTTPException) as e:
                 errors.append(f'{name}: {type(e).__name__}')
     return out, errors
 
