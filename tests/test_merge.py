@@ -163,6 +163,81 @@ class MergeTest(unittest.TestCase):
             release.set(); server.close()
 
 
+    def merged(self, fetch, server):
+        with patch.object(relay, '_download', side_effect=fetch), patch.object(relay.Merged, 'start'):
+            server.add_merged([('https://primary.example/live.m3u8', {}), ('https://backup.example/live.m3u8', {})])
+        return next(iter(server.merged.values()))
+
+    def test_relay_leaves_a_source_whose_segments_arrive_slower_than_real_time(self):
+        server = relay.Relay()
+        def fetch(url, *args, **kwargs):
+            if url.endswith('.m3u8'): return ('\n'.join(['#EXTM3U', '#EXT-X-TARGETDURATION:1', '#EXT-X-MEDIA-SEQUENCE:0'] +
+                                       [f'#EXTINF:0.1,\nseg-{n:03d}.ts' for n in range(12)]) + '\n').encode()
+            # The primary's playlist keeps advancing, but each 0.1 s segment takes 0.15 s to arrive.
+            if 'primary' in url: relay.time.sleep(.15)
+            return ts_with_pts(int(url[-6:-3]) * 9000)
+        try:
+            session = self.merged(fetch, server)
+            committed = []
+            original = session.timeline.commit
+            session.timeline.commit = lambda i, seg, *a: (committed.append((i, seg.name)), original(i, seg, *a))
+            with patch.object(relay, '_download', side_effect=fetch):
+                session.pump(); session.steer()
+                self.assertEqual(session.active, 1)
+                session.pump()
+            self.assertEqual([name for _, name in committed], [f'seg-{n:03d}.ts' for n in range(9, 12)])
+            self.assertEqual({source for source, _ in committed}, {0})
+        finally:
+            server.close()
+
+    def shared_clock_session(self, server, state, backup_offset):
+        def fetch(url, *args, **kwargs):
+            if 'primary' in url and state['down']: raise relay.urllib.error.URLError('down')
+            name = 'a' if 'primary' in url else 'b'
+            if url.endswith('.m3u8'): return ('\n'.join(['#EXTM3U', '#EXT-X-TARGETDURATION:2', f'#EXT-X-MEDIA-SEQUENCE:{state["newest"] - 7}'] +
+                                       [f'#EXTINF:2,\n{name}{n:03d}.ts' for n in range(state['newest'] - 7, state['newest'] + 1)]) + '\n').encode()
+            return ts_with_pts(int(url[-6:-3]) * 180000 + (backup_offset if name == 'b' else 0))
+        return fetch
+
+    @staticmethod
+    def reload(session):
+        for index in range(len(session.sources)):
+            try: session.load(index)
+            except relay.urllib.error.URLError: session.sources[index]['failures'] += 1
+
+    def drive_blip(self, backup_offset):
+        """Primary goes down, playback moves to the backup, primary comes back and stays up."""
+        server = relay.Relay()
+        state = {'down': False, 'newest': 10}
+        fetch = self.shared_clock_session(server, state, backup_offset)
+        session = self.merged(fetch, server)
+        session.RETURN_AFTER = 0
+        committed = []
+        original = session.timeline.commit
+        session.timeline.commit = lambda i, seg, *a: (committed.append(seg.name), original(i, seg, *a))
+        with patch.object(relay, '_download', side_effect=fetch):
+            session.pump()
+            state['down'] = True; state['newest'] += 2
+            self.reload(session); self.reload(session)
+            session.steer(); session.pump()
+            state['down'] = False; state['newest'] += 2
+            self.reload(session); session.steer(); session.pump()
+        server.close()
+        return session, committed
+
+    def test_relay_returns_to_the_chosen_source_once_it_is_steady_again(self):
+        session, committed = self.drive_blip(backup_offset=0)
+        self.assertEqual(session.active, 0)
+        # Timestamps line up, so each moment arrives once and in order across both switches.
+        self.assertEqual([int(name[1:4]) for name in committed], list(range(8, 8 + len(committed))))
+        self.assertIn('b', ''.join(name[0] for name in committed))
+        self.assertEqual(committed[-1][0], 'a')
+
+    def test_relay_stays_on_a_backup_whose_clock_differs_from_the_chosen_source(self):
+        # Another encoder: returning could repeat or skip a few seconds, so the relay keeps the backup.
+        session, _ = self.drive_blip(backup_offset=500 * 90000)
+        self.assertEqual(session.active, 1)
+
 class BackupSelectionTest(unittest.TestCase):
     def make_app(self):
         app = nba.App.__new__(nba.App)
