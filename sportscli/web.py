@@ -146,7 +146,9 @@ class Web:
         finally:
             if pool: pool.shutdown(wait=False, cancel_futures=True)
         note = self.player.stream_notes.pop(url, '').strip()
-        return {'url': self.register(url, headers, '.m3u8'), 'note': note}
+        # The terminal front end starts mpv itself; give it the same cache, retry and stall options as the app.
+        options = app.mpv_command('', cache=self.player.cache)[1:-2]
+        return {'url': self.register(url, headers, '.m3u8'), 'note': note, 'mpv': options}
 
     def backups(self, found, index):
         """Up to two other working sources for the same broadcast side, never mixing home and away."""

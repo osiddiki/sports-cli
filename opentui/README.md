@@ -10,4 +10,6 @@ bun index.ts
 
 Keys: ←/→ league (the last tab is TV), ↑/↓ move, Enter opens a game or channel and then plays a source in mpv, Tab switches panels, Esc returns to the list, r refreshes, q quits.
 
+mpv starts with the app's own options (cache, segment retries, stall timeout, hardware decoding). The Now playing panel reads resolution, frame rate, decoder, cache, dropped frames and bitrate from mpv's IPC socket, and flags a stall after 10 seconds without progress. Quitting also closes the mpv it started.
+
 Not covered yet: search, replays, settings, ad modes and player choice. Type-check with `bunx tsc --noEmit -p .`.

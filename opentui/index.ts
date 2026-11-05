@@ -1,6 +1,8 @@
 // OpenTUI prototype of the Sports CLI games screen. The Python app does the work behind
 // `sports-cli --web`; this file only draws the screen and calls that server's JSON API.
+import os from "node:os"
 import path from "node:path"
+import type { Socket, Subprocess } from "bun"
 import {
   BoxRenderable,
   SelectRenderable,
@@ -61,7 +63,7 @@ async function api<T>(route: string, query: Record<string, string> = {}): Promis
 
 // Screen
 
-const renderer = await createCliRenderer({ exitOnCtrlC: true, backgroundColor: C.bg, onDestroy: () => server.kill() })
+const renderer = await createCliRenderer({ exitOnCtrlC: true, backgroundColor: C.bg, onDestroy: () => { stopPlayer(); server.kill() } })
 
 const app = new BoxRenderable(renderer, { id: "app", flexDirection: "column", width: "100%", height: "100%", padding: 1, gap: 1 })
 const header = new BoxRenderable(renderer, { id: "header", flexDirection: "row", height: 1, justifyContent: "space-between" })
@@ -97,12 +99,18 @@ sourcesPanel.add(sources)
 body.add(gamesPanel)
 body.add(sourcesPanel)
 
+const nowPanel = new BoxRenderable(renderer, {
+  id: "now-panel", title: " Now playing ", border: true, borderStyle: "rounded", borderColor: C.line, titleColor: C.text,
+  backgroundColor: C.panel, height: 3, paddingX: 1,
+})
+const now = new TextRenderable(renderer, { id: "now", content: t`${fg(C.muted)("Nothing playing")}` })
+nowPanel.add(now)
 const status = new TextRenderable(renderer, { id: "status", content: "" })
 const keys = new TextRenderable(renderer, {
   id: "keys",
   content: t`${bold("←/→")}${dim(" league   ")}${bold("↑/↓")}${dim(" move   ")}${bold("Enter")}${dim(" open/play   ")}${bold("Tab")}${dim(" switch panel   ")}${bold("r")}${dim(" refresh   ")}${bold("q")}${dim(" quit")}`,
 })
-for (const part of [header, tabs, body, status, keys]) app.add(part)
+for (const part of [header, tabs, body, nowPanel, status, keys]) app.add(part)
 renderer.root.add(app)
 
 function say(text: string, color = C.muted) { status.content = t`${fg(color)(text)}` }
@@ -200,13 +208,82 @@ async function loadSources(next: Target, label: string, refresh = false) {
   await update(true)
 }
 
+// Player. mpv's own status line (dropped frames, cache) has no terminal here, so read the same
+// numbers over its IPC socket and draw them in the Now playing panel.
+
+const WATCHED = ["time-pos", "paused-for-cache", "demuxer-cache-duration", "frame-drop-count", "decoder-frame-drop-count",
+  "video-params/h", "estimated-vf-fps", "video-bitrate", "hwdec-current", "pause"] as const
+type Stats = Partial<Record<(typeof WATCHED)[number], any>>
+type Player = { process: Subprocess; socket?: Socket; title: string; stats: Stats; moved: number; lastPos?: number; timer: ReturnType<typeof setInterval> }
+let player: Player | null = null
+
+function stopPlayer() {
+  if (!player) return
+  clearInterval(player.timer)
+  player.socket?.end()
+  player.process.kill()
+  player = null
+  now.content = t`${fg(C.muted)("Nothing playing")}`
+}
+
+function drawNow(current: Player) {
+  const s = current.stats
+  const stalled = (Date.now() - current.moved) / 1000
+  const parts = [
+    s["video-params/h"] ? `${s["video-params/h"]}p` : "",
+    s["estimated-vf-fps"] ? `${Math.round(s["estimated-vf-fps"])} fps` : "",
+    s["hwdec-current"] && s["hwdec-current"] !== "no" ? `hw ${s["hwdec-current"]}` : "software decode",
+    typeof s["demuxer-cache-duration"] === "number" ? `cache ${s["demuxer-cache-duration"].toFixed(1)} s` : "",
+    `dropped ${s["frame-drop-count"] ?? 0} (decoder ${s["decoder-frame-drop-count"] ?? 0})`,
+    s["video-bitrate"] ? `${(s["video-bitrate"] / 1e6).toFixed(1)} Mb/s` : "",
+  ].filter(Boolean).join("  ·  ")
+  const state = s.pause ? fg(C.muted)("⏸ paused") : s["paused-for-cache"] ? fg(C.warn)("◌ buffering")
+    : stalled > 10 ? fg(C.live)(`⚠ stalled ${Math.round(stalled)} s, press Enter on a source to restart`) : fg(C.ok)("▶ playing")
+  now.content = t`${state}${fg(C.text)(`  ${current.title}  `)}${fg(C.muted)(parts)}`
+}
+
+async function connectPlayer(current: Player, socketPath: string) {
+  let buffered = ""
+  for (let attempt = 0; attempt < 50 && player === current; attempt++) {
+    try {
+      current.socket = await Bun.connect({
+        unix: socketPath,
+        socket: {
+          data(_socket, data) {
+            buffered += data.toString()
+            const lines = buffered.split("\n"); buffered = lines.pop() ?? ""
+            for (const line of lines) {
+              try {
+                const event = JSON.parse(line)
+                if (event.event === "property-change") {
+                  if (event.name === "time-pos" && event.data !== current.lastPos) { current.lastPos = event.data; current.moved = Date.now() }
+                  current.stats[event.name as (typeof WATCHED)[number]] = event.data
+                }
+              } catch {}
+            }
+          },
+          close() { if (player === current) stopPlayer() },
+        },
+      })
+      WATCHED.forEach((name, id) => current.socket!.write(JSON.stringify({ command: ["observe_property", id + 1, name] }) + "\n"))
+      return
+    } catch { await Bun.sleep(200) }
+  }
+}
+
 async function play(source: Source) {
   if (!target) return
   say(`Starting ${source.name}…`, C.warn)
   try {
-    const answer = await api<{ url: string; note: string }>("api/play", { ...("channel" in target ? { channel: target.channel } : { league: target.league, game: target.game }), i: String(source.i) })
-    const url = `http://127.0.0.1:${port}${answer.url}`
-    Bun.spawn(["mpv", "--force-window=immediate", `--force-media-title=${heading}`, url], { stdout: "ignore", stderr: "ignore", stdin: "ignore" })
+    const answer = await api<{ url: string; note: string; mpv: string[] }>("api/play", { ...("channel" in target ? { channel: target.channel } : { league: target.league, game: target.game }), i: String(source.i) })
+    stopPlayer()
+    const socketPath = path.join(os.tmpdir(), `sports-opentui-${process.pid}-${Date.now()}.sock`)
+    const process_ = Bun.spawn(["mpv", ...answer.mpv, `--force-media-title=${heading}`, `--input-ipc-server=${socketPath}`, "--", `http://127.0.0.1:${port}${answer.url}`],
+      { stdout: "ignore", stderr: "ignore", stdin: "ignore" })
+    const current: Player = { process: process_, title: heading, stats: {}, moved: Date.now(), timer: setInterval(() => player === current && drawNow(current), 1000) }
+    player = current
+    process_.exited.then(() => { if (player === current) stopPlayer() })
+    connectPlayer(current, socketPath)
     say(`Playing ${source.name} in mpv${answer.note ? ` · ${answer.note}` : ""}`, C.ok)
   } catch (error) {
     say(`${source.name} failed: ${(error as Error).message}`, C.live)
