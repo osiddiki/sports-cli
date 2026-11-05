@@ -3,6 +3,7 @@
 import os from "node:os"
 import path from "node:path"
 import type { Socket, Subprocess } from "bun"
+import QRCode from "qrcode"
 import {
   BoxRenderable,
   SelectRenderable,
@@ -31,27 +32,32 @@ type Target = { league: string; game: string } | { channel: string }
 
 // Backend
 
-async function freePort() {
-  const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } })
-  const port = probe.port
-  probe.stop(true)
-  return port
+// The phone link keeps working between runs when the port stays the same as `sports --web`'s (the token is saved).
+function openPort(port: number) {
+  try {
+    const probe = Bun.listen({ hostname: "0.0.0.0", port, socket: { data() {} } })
+    const open = probe.port
+    probe.stop(true)
+    return open
+  } catch { return undefined }
 }
 
-const port = await freePort()
-const server = Bun.spawn(["python3", path.join(REPO, "sports-cli"), "--web", "--web-host", "127.0.0.1", "--web-port", String(port)], {
+const port = openPort(8765) ?? openPort(0)!
+const server = Bun.spawn(["python3", path.join(REPO, "sports-cli"), "--web", "--web-port", String(port)], {
   stdout: "pipe", stderr: "ignore", env: { ...process.env, PYTHONUNBUFFERED: "1" },
 })
-const token = await (async () => {
+const phoneLinks: string[] = await (async () => {
   const decoder = new TextDecoder()
   let seen = ""
   for await (const chunk of server.stdout) {
     seen += decoder.decode(chunk)
-    const match = seen.match(/:\d+\/([A-Za-z0-9_-]+)\//)
-    if (match) return match[1]!
+    if (seen.includes("The link is the password")) return seen.match(/http:\/\/\S+/g) ?? []
   }
   throw new Error("the Sports CLI server stopped before it was ready")
 })()
+const token = phoneLinks[0]!.match(/:\d+\/([A-Za-z0-9_-]+)\//)![1]!
+// A Wi-Fi address works for any phone at home; Tailscale names only for phones on Tailscale.
+const homeLink = phoneLinks.find((link) => /\/\/(192\.168|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(link)) ?? phoneLinks[0]!
 const base = `http://127.0.0.1:${port}/${token}/`
 
 async function api<T>(route: string, query: Record<string, string> = {}): Promise<T> {
@@ -69,8 +75,12 @@ const app = new BoxRenderable(renderer, { id: "app", flexDirection: "column", wi
 const header = new BoxRenderable(renderer, { id: "header", flexDirection: "row", height: 1, justifyContent: "space-between" })
 const brand = new TextRenderable(renderer, { id: "brand", content: t`${bold(fg(C.focus)("● SPORTS"))}${fg(C.muted)("  live games, sources and TV")}` })
 const clock = new TextRenderable(renderer, { id: "clock", content: "" })
+const phone = new TextRenderable(renderer, { id: "phone", content: t`${fg(C.muted)("phone ")}${fg(C.text)(homeLink)}${fg(C.muted)("  p QR code   ")}` })
+const headerRight = new BoxRenderable(renderer, { id: "header-right", flexDirection: "row" })
+headerRight.add(phone)
+headerRight.add(clock)
 header.add(brand)
-header.add(clock)
+header.add(headerRight)
 
 const tabs = new TabSelectRenderable(renderer, {
   id: "tabs", width: "100%", tabWidth: 12, showDescription: false, showUnderline: false, showScrollArrows: true, wrapSelection: true,
@@ -108,10 +118,54 @@ nowPanel.add(now)
 const status = new TextRenderable(renderer, { id: "status", content: "" })
 const keys = new TextRenderable(renderer, {
   id: "keys",
-  content: t`${bold("←/→")}${dim(" league   ")}${bold("↑/↓")}${dim(" move   ")}${bold("Enter")}${dim(" open/play   ")}${bold("Tab")}${dim(" switch panel   ")}${bold("r")}${dim(" refresh   ")}${bold("q")}${dim(" quit")}`,
+  content: t`${bold("←/→")}${dim(" league   ")}${bold("↑/↓")}${dim(" move   ")}${bold("Enter")}${dim(" open/play   ")}${bold("Tab")}${dim(" switch panel   ")}${bold("r")}${dim(" refresh   ")}${bold("p")}${dim(" phone   ")}${bold("q")}${dim(" quit")}`,
 })
 for (const part of [header, tabs, body, nowPanel, status, keys]) app.add(part)
 renderer.root.add(app)
+
+// Phone overlay: a QR code drawn with half blocks, light modules as white so phone cameras read it on a dark terminal.
+function qrText(link: string) {
+  const { modules } = QRCode.create(link, { errorCorrectionLevel: "L" })
+  const quiet = 2, size = modules.size + quiet * 2
+  const light = (row: number, col: number) => {
+    const r = row - quiet, c = col - quiet
+    return r < 0 || c < 0 || r >= modules.size || c >= modules.size || !modules.get(r, c)
+  }
+  const lines: string[] = []
+  for (let row = 0; row < size; row += 2) {
+    let line = ""
+    for (let col = 0; col < size; col++) {
+      const top = light(row, col), bottom = row + 1 < size ? light(row + 1, col) : true
+      line += top && bottom ? "█" : top ? "▀" : bottom ? "▄" : " "
+    }
+    lines.push(line)
+  }
+  return lines.join("\n")
+}
+const phonePanel = new BoxRenderable(renderer, {
+  id: "phone-panel", title: " Open on your phone ", border: true, borderStyle: "rounded", borderColor: C.focus, titleColor: C.text,
+  backgroundColor: C.bg, position: "absolute", top: 2, left: 4, zIndex: 10, padding: 1, flexDirection: "column", gap: 1, visible: false,
+})
+const phoneCode = new TextRenderable(renderer, { id: "phone-code", content: "", fg: "#ffffff", bg: C.bg })
+const phoneText = new TextRenderable(renderer, { id: "phone-text", content: "" })
+phonePanel.add(phoneCode)
+phonePanel.add(phoneText)
+renderer.root.add(phonePanel)
+let phoneIndex = Math.max(0, phoneLinks.indexOf(homeLink))
+function drawPhone() {
+  const link = phoneLinks[phoneIndex]!
+  const code = qrText(link), rows = code.split("\n")
+  phoneCode.content = code
+  phoneCode.height = rows.length
+  phoneText.height = 4
+  phonePanel.width = Math.max(rows[0]!.length, link.length, 64) + 4
+  phonePanel.height = rows.length + 4 + 5
+  const more = phoneLinks.length > 1 ? `←/→ other links (${phoneIndex + 1} of ${phoneLinks.length})   ` : "Same Wi-Fi as this computer.   "
+  phoneText.content = t`${fg(C.muted)("Scan with the camera, or type:")}
+${bold(fg(C.text)(link))}
+${fg(C.muted)(more + "p or Esc closes")}
+${fg(C.muted)("The link is the password; share it only with people you trust.")}`
+}
 
 function say(text: string, color = C.muted) { status.content = t`${fg(color)(text)}` }
 setInterval(() => { clock.content = t`${fg(C.muted)(new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }))}` }, 1000)
@@ -308,6 +362,18 @@ tabs.on(TabSelectRenderableEvents.SELECTION_CHANGED, (_index: number, option: { 
 
 renderer.keyInput.on("keypress", (key) => {
   if (key.name === "q") return renderer.destroy()
+  if (key.name === "p" || (key.name === "escape" && phonePanel.visible)) {
+    phonePanel.visible = key.name === "p" && !phonePanel.visible
+    if (phonePanel.visible) drawPhone()
+    return
+  }
+  if (phonePanel.visible) {
+    if (key.name === "left" || key.name === "right") {
+      phoneIndex = (phoneIndex + (key.name === "left" ? -1 : 1) + phoneLinks.length) % phoneLinks.length
+      drawPhone()
+    }
+    return
+  }
   if (key.name === "tab") return focus(sources.focused ? "games" : "sources")
   if (key.name === "escape" && sources.focused) return focus("games")
   if (key.name === "left" || key.name === "right") {
