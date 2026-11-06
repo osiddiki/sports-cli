@@ -69,6 +69,29 @@ http://192.168.1.1:8080/live.m3u8
         self.assertEqual(channels[-1].name, "6'eren Denmark")
         self.assertFalse(channels[-1].featured)
 
+    def test_cnbc_international_feeds_fill_in_for_the_us_channel(self):
+        playlist = '''#EXTM3U
+#EXTINF:-1,CNBC World
+https://cdn.example/world.m3u8
+#EXTINF:-1,CNBC UK (1080p)
+https://cdn.example/world.m3u8
+#EXTINF:-1,CNBC Asia HD (1080p)
+https://cdn.example/asia.m3u8
+#EXTINF:-1,CNBC Mongolia (720p)
+https://cdn.example/mn.m3u8
+#EXTINF:-1,CNBC (720p)
+https://cdn.example/us.m3u8
+'''
+        found = tv.iptv_channels(playlist, 'doms9')
+        self.assertEqual(len(found), 5)
+        only = tv.iptv_channels(playlist, 'iptv-org', r'cnbc (?:asia|europe|world|uk)')
+        self.assertEqual([name for name, _ in only], ['CNBC World', 'CNBC UK', 'CNBC Asia HD'])
+        channels = tv.group(found)
+        cnbc = next(channel for channel in channels if channel.name == 'CNBC')
+        self.assertEqual([source.url.rsplit('/', 1)[-1] for source in cnbc.sources], ['us.m3u8', 'world.m3u8', 'asia.m3u8'])
+        self.assertEqual(cnbc.sources[1].label, 'stream (CNBC World feed)')
+        self.assertIn('CNBC Mongolia', [channel.name for channel in channels])
+
     def test_redzone_feeds_merge_into_one_featured_channel(self):
         text = """#EXTM3U
 #EXTINF:-1,NFL RedZone

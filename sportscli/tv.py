@@ -6,7 +6,7 @@ import html
 import re
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from . import providers
 
@@ -14,7 +14,9 @@ IPTV_US = 'https://iptv-org.github.io/iptv/countries/us.m3u'
 # Free playlists listed by FMHY (rentry.co/IPTV-Playlists) that carry US news and network channels.
 PLAYLISTS = [('iptv-org', IPTV_US),
              ('doms9', 'https://raw.githubusercontent.com/doms9/iptv/default/M3U8/TV.m3u8'),
-             ('Aria', 'https://raw.githubusercontent.com/aria-tv/aria/main/aria%2B/united_states.m3u')]
+             ('Aria', 'https://raw.githubusercontent.com/aria-tv/aria/main/aria%2B/united_states.m3u'),
+             # Business channels, kept only for the regional feeds listed in ALTERNATES (the whole list is mostly foreign).
+             ('iptv-org', 'https://iptv-org.github.io/iptv/categories/business.m3u', r'cnbc (?:asia|europe|world|uk)')]
 DADDYLIVE = 'https://dlive.sx/24-7-channels.php'
 MAX_PLAYLIST = 4_000_000
 ADULT = re.compile(r'18\+|\bxxx\b|\badult\b|\bporn', re.I)
@@ -45,6 +47,9 @@ FEATURED = [
     ('NFL RedZone', ('nfl redzone', 'nfl redzone main', 'nfl red zone', 'redzone')),
     ('NFL Network', ('nfl network',)),
 ]
+# Free US feeds of these networks come and go; their international feeds play, in English, and fill in.
+# The source label names the feed so people can tell it from the US channel.
+ALTERNATES = {'CNBC': ('cnbc world', 'cnbc uk', 'cnbc europe', 'cnbc asia')}
 
 
 @dataclass(frozen=True)
@@ -71,8 +76,9 @@ def key(name):
     return ' '.join(re.sub(r'[^a-z0-9/+&-]+', ' ', name).split())
 
 
-def iptv_channels(text, provider='iptv-org'):
-    """Parse an M3U playlist into direct sources, keeping per-stream referer and user agent."""
+def iptv_channels(text, provider='iptv-org', only=None):
+    """Parse an M3U playlist into direct sources, keeping per-stream referer and user agent.
+    `only` is a regex that a channel's key must fully match to be kept."""
     out, info, options = [], None, {}
     for line in text.splitlines():
         line = line.strip()
@@ -85,7 +91,8 @@ def iptv_channels(text, provider='iptv-org'):
             title = info.rsplit(',', 1)[-1].strip()
             # Aria marks streams its own checks found dead.
             dead = 'tvg-status="not-working"' in info
-            if title and not dead and not ADULT.search(title) and providers.public_url(line, any_port=True):
+            wanted = not only or re.fullmatch(only, key(re.sub(r'\s*\(\d{3,4}p\)', '', title)))
+            if title and wanted and not dead and not ADULT.search(title) and providers.public_url(line, any_port=True):
                 headers = []
                 if options.get('http-referrer'): headers.append(('Referer', options['http-referrer']))
                 if options.get('http-user-agent'): headers.append(('User-Agent', options['http-user-agent']))
@@ -122,13 +129,13 @@ def fetch_text(url, timeout=15):
 
 def directory():
     """Return (channels, errors); featured channels first, then everything else by name."""
-    def playlist(name, url): return iptv_channels(fetch_text(url), name)
+    def playlist(name, url, only=None): return iptv_channels(fetch_text(url), name, only)
     def daddy():
         page, final = providers.fetch_html(DADDYLIVE, timeout=15, limit=3_000_000)
         return daddylive_channels(page, final)
     found, errors = [], []
     with concurrent.futures.ThreadPoolExecutor(len(PLAYLISTS) + 1) as pool:
-        jobs = [(name, pool.submit(playlist, name, url)) for name, url in PLAYLISTS] + [('DaddyLive', pool.submit(daddy))]
+        jobs = [(entry[0], pool.submit(playlist, *entry)) for entry in PLAYLISTS] + [('DaddyLive', pool.submit(daddy))]
         for name, future in jobs:
             try: found.extend(future.result())
             except Exception as exc: errors.append(f'{name}: {type(exc).__name__}')  # noqa: BLE001
@@ -146,6 +153,11 @@ def group(found):
         for spelling in spellings:
             for source in by_key.pop(key(spelling), Channel('')).sources:
                 if source not in merged.sources: merged.sources.append(source)
+        for spelling in ALTERNATES.get(title, ()):
+            other = by_key.pop(key(spelling), Channel(''))
+            for source in other.sources:
+                if any(known.url == source.url for known in merged.sources): continue  # same stream under another name
+                merged.sources.append(replace(source, label=f'{source.label} ({other.name} feed)'))
         if merged.sources: featured.append(merged)
     for channel in featured:
         # Direct streams start faster; player pages are backups. Checks then order by measured resolution.
