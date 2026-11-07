@@ -1,0 +1,9 @@
+# Clicking rows. Each REGEX is what a working click would open. Clicking is not built yet,
+# so today each click records "no effect".
+start ^ Home
+click Replays => ^ Replays: choose a sport
+click Settings => ^ Settings
+click Live sports => ^ Live sports: choose a sport
+key 1 => ^ Live sports: choose a sport
+click WNBA => ^ WNBA  \|
+click Soccer: MLS => MLS  \|
