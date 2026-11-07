@@ -241,19 +241,6 @@ class SearchSideHit:
     def key(self): return ('side', self.item.league, self.item.id, self.side)
 
 
-def replay_identity(index, hit):
-    """Group the same dated matchup across different replay directories."""
-    title = re.split(r'\s+[-–—]\s+', hit.title, maxsplit=1)[0].strip()
-    parts = re.split(r'\s+(?:vs\.?|versus)\s+', title, maxsplit=1, flags=re.I)
-    if hit.date and len(parts) == 2:
-        teams = []
-        for part in parts:
-            matches = [(team, score) for team, score in index.resolve(part) if team.league == hit.league]
-            teams.append(matches[0][0].id if matches and matches[0][1] >= .9 else smart_search.normalize(part))
-        return (hit.league, hit.date.isoformat(), *sorted(teams)), title
-    return (hit.league, hit.item.url), title
-
-
 def check_age(seconds):
     minutes = max(0, int(seconds // 60))
     return 'now' if minutes == 0 else f'{minutes}m' if minutes < 60 else f'{minutes // 60}h'
@@ -1487,14 +1474,9 @@ class App:
                 for side in ('home', 'away'):
                     count = sum(feed.side == side and feed.kind != 'web' for feed in preview)
                     if count: result.append(SearchSideHit(hit.item, side, count))
-        bundles = {}
-        for hit in hits:
-            if hit.kind != 'replay' or hit.league != primary.league: continue
-            identity, title = replay_identity(self.search_index, hit)
-            if identity not in bundles:
-                bundles[identity] = ReplayBundle(hit.league, title, hit.date, [], identity)
-            if all(item.url != hit.item.url for item in bundles[identity].sources):
-                bundles[identity].sources.append(hit.item)
+        listings = [hit.item for hit in hits if hit.kind == 'replay' and hit.league == primary.league]
+        bundles = {game.identity: ReplayBundle(game.league, game.title, game.date, list(game.sources), game.identity)
+                   for game in replays.games(listings, primary.league)}
         ordered = sorted(bundles.values(), key=lambda bundle: bundle.date or dt.date.min, reverse=True)
         limit = 10
         result.extend(ReplayBundleHit(bundle) for bundle in ordered[:limit])
