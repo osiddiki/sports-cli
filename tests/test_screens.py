@@ -16,7 +16,7 @@ from sportscli import app as nba, replays, screens, tv
 
 KEYS = {'Enter': 10, 'Esc': 27, 'Backspace': 127, 'Tab': 9, 'Space': 32, 'Ctrl-F': 6, 'Ctrl-X': 24,
         'Up': curses.KEY_UP, 'Down': curses.KEY_DOWN, 'Left': curses.KEY_LEFT, 'Right': curses.KEY_RIGHT}
-EXTRA = list('123/,?qhtsrjk[]lfoixgua')
+EXTRA = list('1234/,?qhtsrjk[]lfoixgua')
 ALPHABET = sorted({*KEYS, *(k for keys in screens.CHART.values() for k in keys), *EXTRA})
 MAX_DEPTH = 7
 
@@ -47,7 +47,7 @@ class Screen:
 
 def make_app(factory=None):
     app = factory() if factory else nba.App(Screen(), {})
-    app.calls = []
+    app.calls = []; app.tonight = list(GAMES)
     record = lambda name: (lambda *args, **kwargs: app.calls.append(name))
     def refresh_games(): app.games = list(GAMES); app.all_games = list(GAMES); app.loading_games = False; app.calls.append('refresh_games')
     def refresh_replays(): app.replays = list(REPLAYS); app.replay_pending = 0; app.calls.append('refresh_replays')
@@ -55,7 +55,7 @@ def make_app(factory=None):
     def refresh_channels(): app.channels = list(CHANNELS); app.channels_loaded_at = time.monotonic(); app.calls.append('refresh_channels')
     def prompt(*args, **kwargs): app.calls.append('prompt'); return ''
     for name, value in {'refresh_games': refresh_games, 'refresh_replays': refresh_replays, 'refresh_feeds': refresh_feeds,
-                        'refresh_channels': refresh_channels, 'prompt': prompt,
+                        'refresh_channels': refresh_channels, 'refresh_tonight': record('refresh_tonight'), 'prompt': prompt,
                         'update_global_search': record('search'), 'rebuild_global_results': record('search'),
                         'begin_feed_action': record('begin_feed_action'), 'test_feed': record('test_feed'),
                         'play': record('play'), 'configure_addon': record('configure_addon'),
@@ -209,7 +209,7 @@ class ScreenChartTests(unittest.TestCase):
 
     def test_schedule_footer_keys_work_in_every_league(self):
         def schedule(league):
-            app = make_app(); press(app, '1'); app.league_index = list(nba.LEAGUES).index(league); press(app, 'Enter')
+            app = make_app(); press(app, 's'); app.league_index = list(nba.LEAGUES).index(league); press(app, 'Enter')
             return app
         for league in nba.LEAGUES:
             app = schedule(league)
@@ -252,7 +252,7 @@ class ScreenChartTests(unittest.TestCase):
     def items(app):
         return {'search': app.search_results, 'leagues': nba.LEAGUES, 'games': app.games, 'replays': app.replays,
                 'channels': app.visible_channels(), 'feeds': app.visible_feeds(), 'help': nba.HELP_LINES,
-                'home': nba.HOME_ITEMS, 'settings': app.settings_rows()}.get(app.mode, [])
+                'home': app.home_rows(), 'settings': app.settings_rows()}.get(app.mode, [])
 
 
 if __name__ == '__main__':

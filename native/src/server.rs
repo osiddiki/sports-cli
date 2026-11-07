@@ -21,6 +21,9 @@ pub struct Row {
     pub style: String,
     #[serde(default)]
     pub pick: bool,
+    /// The league of a game on Home, which colours its mark.
+    #[serde(default)]
+    pub league: String,
     /// Where up and down move to reach this row. Search draws players before other teams, so this is the result index, not the count of rows above.
     #[serde(default)]
     pub cursor: Option<i64>,
@@ -33,6 +36,9 @@ pub struct View {
     pub accent: String,
     #[serde(default)]
     pub title: String,
+    /// The league's or Live TV's short code beside the title of its lists.
+    #[serde(default)]
+    pub mark: String,
     #[serde(default)]
     pub busy: bool,
     #[serde(default)]

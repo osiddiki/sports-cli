@@ -6,11 +6,12 @@
 
 The app's whole job is finding a clean signal in a noisy, unreliable world of streams, then getting out of the way. So the design borrows from instruments rather than from streaming services: a dark field, quiet type, and one source of light.
 
-- **One accent per context.** Each league has its own colour (NBA ember, NFL turf, NHL ice, MLB clay, soccer violet, TV electric blue). Home, search, settings and help stay neutral. The accent is the only saturated thing on screen, so it always means "this is where you are".
-- **Row numbers.** The first nine rows of every list carry a small number, lit in the accent on the selected row: `1` to `9` open that row. Search has none, since digits type there.
+- **Night game.** A near-black field (`#0B0D10`), warm white text (`#ECE9E2`) and grey secondary text (`#7E848D`). On-air red (`#FF3B30`) marks live games and nothing else.
+- **One accent per context.** Each league has its own colour (NBA ember, NFL turf, NHL ice, MLB clay, soccer violet, TV electric blue). Home, search, settings and help stay neutral. Besides on-air red, the accent is the only saturated thing on screen, so it always means "this is where you are".
+- **League marks, not row numbers.** Home is tonight's games across leagues, and each row starts with its league's code (`NBA`, `NHL`, `MLS`) in its accent. A league's own lists carry the mark beside their title. `1` to `9` still open rows, but no list draws the numbers.
 - **The beam.** The selection is a 3 pt bar of accent light with a soft wash spreading right. It springs between rows (0.25 s, no bounce) instead of jumping, so the eye follows it.
 - **The signal ruler.** Every source carries 18 ticks. Lit ticks say how well it plays, tall ticks mark sharpness (1080p fills the ruler, 720p most of it), a sweep runs through it while it is checked, and a failed source lies flat with its reason in red. The selected source's ruler lights in the accent. The loading screen of the player is the same ruler, doubled: tuning in.
-- **The pulse.** Live games breathe: a dot that fades between 35% and 100% every 1.6 s, each row a little out of phase. The header dot pulses only while the app works in the background.
+- **The pulse.** Live games breathe: a red dot that fades between 35% and 100% every 1.6 s, each row a little out of phase. Upcoming games show only their time. The header dot pulses only while the app works in the background.
 - **The mark.** Three bars of a signal meter, the tallest in the accent.
 
 ## Motion
@@ -41,7 +42,7 @@ The screens take the terminal app's keys unchanged; the footer lists them for ea
 | | Esc or Tab | shrink to the corner and keep browsing |
 | | o | open in mpv instead |
 | | Backspace or ⌘. | stop |
-| Browsing with a corner player | Tab | full size |
+| Browsing with a corner player | Tab | full size, except on Home, where Tab moves to the sections line |
 | | ⌘. | stop |
 | Prompt | Enter / Esc | answer / cancel (an empty answer clears) |
 | Stream link | ⌘C | copy |
@@ -56,7 +57,7 @@ One worker thread sends every request in the order you made it, and Python numbe
 
 ```sh
 cd native && cargo run --release
-native/verify.sh      # headless: Live TV, play the second channel, corner player; needs network
+native/verify.sh      # headless: Tab to the sections, Live TV, play the second channel, corner player; needs network
 ```
 
 Headless runs (`--snap`, `--script`, `--tree`) use Rune's virtual clock. `SPORTS_NATIVE_SYNC=1` holds that clock to the wall clock and runs the main run loop where AVPlayer delivers its callbacks, so scripted runs see real loading and real frames. `SPORTS_NATIVE_LOG=1` prints the player's frame counts.

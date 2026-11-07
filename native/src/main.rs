@@ -6,7 +6,7 @@ mod server;
 mod ui;
 mod video;
 
-use rune::{AppSpec, Cx, El, Key, KeyEvent, Tx, Waker};
+use rune::{AppSpec, Cx, El, Key, KeyEvent, Mods, Tx, Waker};
 use server::{Event, Reply, Request, Server, View};
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::time::Duration;
@@ -334,7 +334,8 @@ fn on_key(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
             }
             return true;
         }
-        if matches!(e.key, Key::Tab) && s.view.mode != "search" {
+        // Home's own Tab moves to the sections line. Its footer says so, and the corner player must not take the key.
+        if matches!(e.key, Key::Tab) && !matches!(s.view.mode.as_str(), "search" | "home") {
             playing.stage = Stage::Full;
             s.chrome_until = s.now + CHROME_SECONDS;
             return true;
@@ -482,8 +483,53 @@ mod click {
         assert_eq!(opened_row("channels", &slots, 3, &sent), Some(1), "a pointer above the highlight selects that row, keys were {sent:?}");
     }
 
+    /// Home as sportscli/remote.py describes it: headings, tonight's games, then the sections.
+    fn tonight() -> State {
+        let heading = |text: &str| Row { text: text.into(), style: "heading".into(), ..Row::default() };
+        let game = |cursor: i64, title: &str, when: &str, style: &str, league: &str| Row {
+            text: title.into(), cells: vec![league.to_uppercase(), when.into(), title.into()], detail: "ESPN".into(),
+            style: style.into(), pick: true, cursor: Some(cursor), league: league.into(),
+        };
+        let section = |cursor: i64, label: &str| Row { text: label.into(), style: "section".into(), pick: true, cursor: Some(cursor), ..Row::default() };
+        let mut state = init();
+        state.view = View {
+            mode: "home".into(), title: "Tonight".into(), selected: 1,
+            rows: vec![heading("LIVE"), game(0, "Nuggets at Pacers", "7:00 PM", "live", "nba"), heading("LATER TONIGHT"),
+                       game(1, "Maple Leafs at Bruins", "7:30 PM", "", "nhl"), game(2, "Nets at Hawks", "8:00 PM", "", "nba"),
+                       section(3, "Replays"), section(4, "Live TV"), section(5, "Search"), section(6, "Settings")],
+            ..View::default()
+        };
+        state
+    }
+
     #[test]
-    fn a_pointer_past_the_numbered_rows_selects_that_row() {
+    fn home_is_tonights_games_with_league_marks_and_no_row_numbers() {
+        let rt = runtime(tonight());
+        let elements = rt.elements();
+        let drawn: Vec<&str> = elements.iter().filter_map(|e| e.text.as_deref()).collect();
+        for title in ["Nuggets at Pacers", "Maple Leafs at Bruins", "Nets at Hawks"] {
+            assert!(drawn.contains(&title), "{title} is not on Home: {drawn:?}");
+        }
+        assert_eq!(drawn.iter().filter(|t| **t == "NBA").count(), 2, "each NBA game carries its mark: {drawn:?}");
+        assert!(drawn.contains(&"NHL"), "the NHL game carries its mark: {drawn:?}");
+        assert!(!drawn.iter().any(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_digit())), "a row draws a side number: {drawn:?}");
+        for label in ["Replays", "Live TV", "Search", "Settings"] {
+            let (_, y) = rt.find("sections").expect("the sections line");
+            let at = elements.iter().find(|e| e.text.as_deref() == Some(label)).unwrap_or_else(|| panic!("{label} is missing"));
+            assert!((at.rect[1] + at.rect[3] / 2.0 - y).abs() < 1.0, "{label} is not on the sections line");
+        }
+        let lights: Vec<String> = elements.iter().filter(|e| e.key.as_deref() == Some("light")).map(|e| e.fill.hex()).collect();
+        assert_eq!(lights, ["#ff3b30ff", "#00000000", "#00000000"], "only the live game carries the red light");
+    }
+
+    #[test]
+    fn a_pointer_on_a_section_opens_it() {
+        let sent = tap(tonight(), "row-6");
+        assert_eq!(sent, ["down", "down", "down", "down", "enter"], "Live TV is four moves below the Nuggets game");
+    }
+
+    #[test]
+    fn a_pointer_on_a_far_row_selects_that_row() {
         let slots = results(12);
         let sent = tap_in(screen("games", &slots, 0), "row-10", (1120.0, 1600.0));
         assert_eq!(opened_row("games", &slots, 0, &sent), Some(10), "a pointer on row 10 selects that row, keys were {sent:?}");
@@ -505,6 +551,44 @@ mod click {
         let mut rt = runtime(state);
         click_at(&mut rt, "row-2");
         assert!(rt.state.sent_keys.is_empty(), "a prompt lets the click through: {:?}", rt.state.sent_keys);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn corner_player(state: &mut State) {
+        state.playing = Some(Playing {
+            stream: video::Stream { surface: rune::NativeSurface::new() },
+            title: "Live".into(), command: vec![], phase: video::Phase::Playing, stage: Stage::Mini,
+            paused: false, muted: false, reported: false,
+        });
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn press_tab(state: State) -> State {
+        let mut rt = runtime(state);
+        rt.on_key = Some(on_key);
+        rt.key(KeyEvent { key: Key::Tab, mods: Mods::default() });
+        rt.frame(0.0);
+        rt.state
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn tab_on_home_reaches_the_sections_line_while_the_corner_player_is_up() {
+        let mut state = screen("home", &results(2), 0);
+        corner_player(&mut state);
+        let state = press_tab(state);
+        assert_eq!(state.sent_keys, ["tab"], "Tab opened the corner player instead of the sections line");
+        assert!(matches!(state.playing.as_ref().map(|p| p.stage), Some(Stage::Mini)));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn tab_beside_a_game_list_still_opens_the_corner_player() {
+        let mut state = screen("games", &results(2), 0);
+        corner_player(&mut state);
+        let state = press_tab(state);
+        assert!(state.sent_keys.is_empty(), "Tab left the corner player: {:?}", state.sent_keys);
+        assert!(matches!(state.playing.as_ref().map(|p| p.stage), Some(Stage::Full)));
     }
 
     #[cfg(not(target_os = "macos"))]

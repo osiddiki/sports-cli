@@ -580,27 +580,27 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_wnba_league_is_loaded_only_after_selection(self):
         class Screen:
-            def __init__(self): self.keys = iter([ord('1'), ord('j'), 10, ord('q')])
+            def __init__(self): self.keys = iter([ord('s'), ord('j'), 10, ord('q')])
             def keypad(self, value): pass
             def timeout(self, value): pass
             def getch(self): return next(self.keys)
         app = nba.App(Screen(), {})
-        with patch.object(nba.curses, 'curs_set'), patch.object(app, 'render'), \
+        with patch.object(nba.curses, 'curs_set'), patch.object(app, 'render'), patch.object(app, 'refresh_tonight'), \
              patch.object(nba, 'get_games', return_value=[]) as fetch:
             app.run()
         self.assertEqual([call.args[1] for call in fetch.call_args_list], ['wnba'])
 
     def test_s_changes_sport_and_settings_set_the_resolver(self):
-        # Home -> live sports -> NBA -> a game's sources -> s (sport picker) -> Esc back to sources
+        # Home -> s (sport list) -> NBA -> a game's sources -> s (sport picker) -> Esc back to sources
         # -> , settings -> the PPV resolver row -> Enter.
         class Screen:
-            def __init__(self): self.keys = iter([10, 10, 10, ord('s'), 27, ord(','), *[ord('j')] * 6, 10, ord('q')])
+            def __init__(self): self.keys = iter([ord('s'), 10, 10, ord('s'), 27, ord(','), *[ord('j')] * 6, 10, ord('q')])
             def keypad(self, value): pass
             def timeout(self, value): pass
             def getch(self): return next(self.keys)
         app = nba.App(Screen(), {})
         modes = []
-        with patch.object(nba.curses, 'curs_set'), patch.object(app, 'render', side_effect=lambda: modes.append(app.mode)), \
+        with patch.object(nba.curses, 'curs_set'), patch.object(app, 'render', side_effect=lambda: modes.append(app.mode)), patch.object(app, 'refresh_tonight'), \
              patch.object(nba, 'get_games', return_value=[self.game]), patch.object(nba, 'feed_tasks', return_value=[]), \
              patch.object(app, 'configure_resolver') as resolver:
             app.run()

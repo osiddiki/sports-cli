@@ -146,7 +146,7 @@ class ScheduleAsyncTests(unittest.TestCase):
             return []
 
         try:
-            with patch.object(nba, 'get_games', side_effect=fetch), \
+            with patch.object(nba, 'get_games', side_effect=fetch), patch.object(self.app, 'refresh_tonight'), \
                  patch.object(nba.curses, 'curs_set'), \
                  patch.object(nba.curses, 'has_colors', return_value=False):
                 started = time.monotonic()
