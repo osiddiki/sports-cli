@@ -133,8 +133,12 @@ def view(a):
         out['actions'] = 'Enter sources   s sport   [ ] date   f filter   r refresh   Esc back'
     elif a.mode == 'replays':
         out['info'] = [f'{app.LEAGUES[a.league][0]}  ·  recent replays  ·  search: {a.replay_search or "all"}']
-        for item in a.replays: rows.append(row(item.title, cells=[item.source, item.title]))
-        selected = a.ri
+        drawn = app.replays.lines(a.replays)
+        current = a.replays[a.ri] if a.replays else None
+        for line in drawn:
+            if line.game is not None and line.game is current: selected = len(rows)
+            rows.append(row(line.text, detail=line.detail, style='' if line.game else 'heading',
+                            pick=line.game is not None))
         out['empty'] = 'Searching replay catalogs' if a.replay_pending else 'No replays found. Try another search or league.'
         out['actions'] = 'Enter sources   s sport   f search titles   r refresh   Esc back'
     elif a.mode == 'channels':
@@ -159,7 +163,7 @@ def view(a):
 
 def feeds_view(a, out):
     if a.feed_context == 'replay' and a.current_replay:
-        out['info'] = [a.current_replay.title, f'Replay sources from {a.current_replay.source}']
+        out['info'] = [a.current_replay.title, app.replays.source_heading(a.current_replay)]
     elif a.feed_context == 'tv' and a.current_channel:
         out['info'] = [a.current_channel.name, 'Live TV']
     elif a.gi < len(a.games):
