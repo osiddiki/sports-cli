@@ -15,7 +15,7 @@ import threading
 import time
 import urllib.error
 from types import SimpleNamespace
-from sportscli import grading, replays
+from sportscli import grading, replays, remote
 
 class DiscoveryTests(unittest.TestCase):
     def setUp(self):
@@ -657,7 +657,155 @@ class DiscoveryTests(unittest.TestCase):
         app.replay_queue.put((1, 'Basketball Replays', [replays.Replay('Basketball Replays', 'Suns vs Kings NBA October 26, 2026', 'u1')], None))
         app.replay_queue.put((1, 'Basketball Video', [replays.Replay('Basketball Video', 'Bulls vs Heat NBA October 29, 2026', 'u2')], None))
         app.poll_replays()
-        self.assertEqual([r.url for r in app.replays], ['u2', 'u1'])
+        self.assertEqual([game.sources[0].url for game in app.replays], ['u2', 'u1'])
+        self.assertEqual([game.title for game in app.replays], ['Bulls vs Heat', 'Suns vs Kings'])
+
+    def test_two_listings_of_the_same_game_are_one_row(self):
+        app = nba.App(None, {})
+        app.mode = 'replays'
+        app.league = 'nba'
+        app.replay_generation = 1
+        app.replay_pending = 2
+        app.replay_order = ['Basketball Replays', 'Basketball Video']
+        app.replay_queue.put((1, 'Basketball Replays', [replays.Replay(
+            'Basketball Replays',
+            'San Antonio Spurs vs. Sacramento Kings 121-98 - NBA Regular Season - Full Game Replay - 6 November 2026',
+            'https://basketballreplays.net/spurs')], None))
+        app.replay_queue.put((1, 'Basketball Video', [replays.Replay(
+            'Basketball Video',
+            'San Antonio Spurs vs Sacramento Kings - NBA - Full Game Replay - November 6, 2026',
+            'https://basketball-video.com/spurs')], None))
+        app.poll_replays()
+        self.assertEqual(len(app.replays), 1)
+        shown = remote.view(app)
+        games = [row for row in shown['rows'] if row['pick']]
+        self.assertEqual(len(games), 1)
+        self.assertEqual(games[0]['text'], 'San Antonio Spurs vs Sacramento Kings')
+        self.assertEqual(games[0]['detail'], '2 sites')
+        self.assertEqual(shown['rows'][0]['text'], 'FRIDAY, NOV 6')
+        self.assertFalse(shown['rows'][0]['pick'])
+        self.assertEqual(shown['selected'], 1)
+        self.assertNotIn('121', games[0]['text'])
+        self.assertNotIn('Full Game Replay', games[0]['text'])
+        self.assertNotRegex(games[0]['text'], r'\bNBA\b')
+        self.assertNotIn('Basketball', games[0]['text'])
+        class Screen:
+            def __init__(self): self.text = {}
+            def getmaxyx(self): return (30, 100)
+            def erase(self): self.text = {}
+            def addnstr(self, y, x, text, n, attr=0):
+                self.text[y] = self.text.get(y, '') + str(text)[:n]
+            def refresh(self): pass
+        app.scr = Screen()
+        app.render()
+        drawn = '\n'.join(app.scr.text[y] for y in sorted(app.scr.text))
+        self.assertEqual(drawn.count('San Antonio Spurs vs Sacramento Kings'), 1)
+        self.assertIn('FRIDAY, NOV 6', drawn)
+        self.assertIn('2 sites', drawn)
+        self.assertNotIn('Full Game Replay', drawn)
+        self.assertNotIn('121', drawn)
+        self.assertNotIn('[Basketball', drawn)
+        app.close()
+
+    def test_same_teams_on_another_day_stay_two_rows(self):
+        app = nba.App(None, {})
+        app.mode = 'replays'
+        app.league = 'nba'
+        app.replay_generation = 1
+        app.replay_pending = 2
+        app.replay_order = ['Basketball Replays', 'Basketball Video']
+        app.replay_queue.put((1, 'Basketball Replays', [replays.Replay(
+            'Basketball Replays', 'Spurs vs Kings - NBA - Full Game Replay - November 6, 2026', 'u1')], None))
+        app.replay_queue.put((1, 'Basketball Video', [replays.Replay(
+            'Basketball Video', 'Kings vs Spurs - NBA - Full Game Replay - November 5, 2026', 'u2')], None))
+        app.poll_replays()
+        self.assertEqual(len(app.replays), 2)
+        self.assertEqual({game.date for game in app.replays}, {dt.date(2026, 11, 6), dt.date(2026, 11, 5)})
+        app.close()
+
+    def test_the_selected_game_stays_selected_when_the_other_site_arrives(self):
+        app = nba.App(None, {})
+        app.mode = 'replays'
+        app.league = 'nba'
+        app.replay_generation = 1
+        app.replay_pending = 2
+        app.replay_order = ['Basketball Replays', 'Basketball Video']
+        app.replay_selection_touched = True
+        app.replay_queue.put((1, 'Basketball Replays', [replays.Replay(
+            'Basketball Replays', 'Spurs vs Kings - NBA - Full Game Replay - November 5, 2026', 'u1')], None))
+        app.poll_replays()
+        self.assertEqual(app.ri, 0)
+        app.replay_queue.put((1, 'Basketball Video', [
+            replays.Replay('Basketball Video', 'Bulls vs Heat - NBA - Full Game Replay - November 6, 2026', 'u2'),
+            replays.Replay('Basketball Video', 'Kings vs Spurs - NBA - Full Game Replay - November 5, 2026', 'u3'),
+        ], None))
+        app.poll_replays()
+        self.assertEqual([game.title for game in app.replays], ['Bulls vs Heat', 'Spurs vs Kings'])
+        self.assertEqual(app.ri, 1)
+        self.assertEqual([item.source for item in app.replays[1].sources], ['Basketball Replays', 'Basketball Video'])
+        app.close()
+
+    def test_opening_the_game_lists_servers_from_both_sites(self):
+        app = nba.App(None, {})
+        app.mode = 'replays'
+        app.league = 'nba'
+        app.replay_generation = 1
+        app.replay_pending = 2
+        app.replay_order = ['Basketball Replays', 'Basketball Video']
+        app.replay_queue.put((1, 'Basketball Replays', [replays.Replay(
+            'Basketball Replays',
+            'San Antonio Spurs vs. Sacramento Kings - NBA Regular Season - Full Game Replay - 6 November 2026',
+            'https://basketballreplays.net/spurs')], None))
+        app.replay_queue.put((1, 'Basketball Video', [replays.Replay(
+            'Basketball Video',
+            'San Antonio Spurs vs Sacramento Kings - NBA - Full Game Replay - November 6, 2026',
+            'https://basketball-video.com/spurs')], None))
+        app.poll_replays()
+        def servers(item):
+            host = 'replays.example' if item.source == 'Basketball Replays' else 'video.example'
+            return [replays.ReplayServer('Server 1 | 720p', f'https://{host}/a', item.url)]
+        with patch.object(replays, 'servers', side_effect=servers):
+            app.open_selected()
+            deadline = time.monotonic() + 2
+            while app.feed_pending and time.monotonic() < deadline:
+                app.poll_feeds()
+                time.sleep(0.01)
+        self.assertEqual([feed.source for feed in app.feeds], ['Basketball Replays', 'Basketball Video'])
+        shown = remote.view(app)
+        self.assertIn('2 sites', shown['info'])
+        self.assertEqual([row['cells'][0].split(' / ')[0] for row in shown['rows']],
+                         ['Basketball Replays', 'Basketball Video'])
+        app.close()
+
+    def test_a_down_site_does_not_hide_the_other_sites_servers(self):
+        app = nba.App(None, {})
+        app.mode = 'replays'
+        app.league = 'nba'
+        app.replay_generation = 1
+        app.replay_pending = 2
+        app.replay_order = ['Basketball Replays', 'Basketball Video']
+        app.replay_queue.put((1, 'Basketball Replays', [replays.Replay(
+            'Basketball Replays',
+            'San Antonio Spurs vs. Sacramento Kings - NBA Regular Season - Full Game Replay - 6 November 2026',
+            'https://basketballreplays.net/spurs')], None))
+        app.replay_queue.put((1, 'Basketball Video', [replays.Replay(
+            'Basketball Video',
+            'San Antonio Spurs vs Sacramento Kings - NBA - Full Game Replay - November 6, 2026',
+            'https://basketball-video.com/spurs')], None))
+        app.poll_replays()
+        def servers(item):
+            if item.source == 'Basketball Video':
+                raise OSError('down')
+            return [replays.ReplayServer('Server 1', 'https://replays.example/a', item.url)]
+        with patch.object(replays, 'servers', side_effect=servers):
+            app.open_selected()
+            deadline = time.monotonic() + 2
+            while app.feed_pending and time.monotonic() < deadline:
+                app.poll_feeds()
+                time.sleep(0.01)
+        self.assertEqual([feed.source for feed in app.feeds], ['Basketball Replays'])
+        self.assertEqual(app.errors, [])
+        app.close()
 
     def test_replay_player_api_produces_public_media_url(self):
         payload = b'{"streaming_url":"https://media.example/video/master.m3u8"}'
