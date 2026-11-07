@@ -107,7 +107,7 @@ The random part of the link is its password. It stays the same between runs, so 
 cd native && cargo run --release
 ```
 
-The keys are the terminal app's. On the player, Space pauses, `m` mutes, Esc or Tab shrinks the video into a corner so you can keep browsing, Tab brings it back, `o` opens the stream in mpv instead, and Backspace or ⌘. stops it. Ad muting and the stats overlay need mpv, so press `o` for those. [docs/native-ui.md](docs/native-ui.md) explains the design.
+The keys are the terminal app's. On the player, Space pauses, `m` mutes, Esc or Tab shrinks the video into a corner so you can keep browsing, Tab brings it back, `o` opens the stream in mpv instead, and Backspace or ⌘. stops it. A finished replay adds a timeline: Left and Right jump 10 seconds, Shift with Left or Right jumps a minute, `[` and `]` jump to the previous or next period, and you can drag the bar. The bar shows the period and how far in you are. It does not show the score. In mpv, the seek keys stay as mpv defines them, and `[` and `]` jump the same periods when the replay has them. Ad muting and the stats overlay need mpv, so press `o` for those. [docs/native-ui.md](docs/native-ui.md) explains the design.
 
 ## Controls
 

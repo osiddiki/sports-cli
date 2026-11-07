@@ -3,6 +3,7 @@
 //! the window. See docs/native-ui.md for the design and verification/native for the model.
 
 mod server;
+mod timeline;
 mod ui;
 mod video;
 
@@ -39,6 +40,14 @@ pub struct Playing {
     pub stage: Stage,
     pub paused: bool,
     pub muted: bool,
+    pub timeline: Option<server::Timeline>,
+    pub position: f64,
+    pub scrubbing: bool,
+    pub chapter: Option<String>,
+    pub show_chapter_until: f64,
+    /// Ignore the player's clock until a seek has caught up, so the bar does not jump back.
+    pub pinned_until: f64,
+    scrub_from: f64,
     /// The app hears how this player ended exactly once, so a failed source is hidden once.
     reported: bool,
 }
@@ -149,15 +158,18 @@ impl State {
                     self.overlay = Overlay::Prompt { label: label.clone(), key: key.clone(), typed: initial.clone() };
                 }
                 Event::Inspect { url } => self.overlay = Overlay::Inspect { url: url.clone() },
-                Event::Play { title, url, headers, command } => {
+                Event::Play { title, url, headers, command, timeline } => {
                     // A new choice replaces the old player; the app already moved on, so it hears nothing.
                     if let Some(mut old) = self.playing.take() { old.reported = true }
                     let waker = self.waker.clone().unwrap_or_else(|| std::sync::Arc::new(|| {}));
+                    let timeline = timeline.clone().filter(|item| item.seekable && item.duration.is_finite() && item.duration > 0.0);
                     match Stream::open(url, headers, waker) {
                         Ok(stream) => {
                             self.playing = Some(Playing {
                                 stream, title: title.clone(), command: command.clone(), phase: Phase::Loading,
                                 stage: Stage::Full, paused: false, muted: false, reported: false,
+                                timeline, position: 0.0, scrubbing: false, chapter: None,
+                                show_chapter_until: 0.0, pinned_until: 0.0, scrub_from: 0.0,
                             });
                             self.chrome_until = self.now + CHROME_SECONDS;
                         }
@@ -187,6 +199,49 @@ impl State {
         }
         // mpv takes over; the app does not hide a source that played.
         if let Some(mut playing) = self.playing.take() { playing.reported = true; self.send(Request::Exit(0)) }
+    }
+
+    fn seek_replay(&mut self, seek: timeline::Seek) {
+        let Some(marks) = self.playing.as_ref().and_then(|playing| playing.timeline.clone()) else { return };
+        let position = self.playing.as_ref().map(|playing| playing.position).unwrap_or(0.0);
+        let (position, chapter) = timeline::apply(&marks, position, seek);
+        let Some(playing) = &mut self.playing else { return };
+        playing.position = position;
+        playing.chapter = chapter;
+        playing.show_chapter_until = self.now + CHROME_SECONDS;
+        playing.pinned_until = self.now + 1.0;
+        playing.scrubbing = false;
+        playing.stream.seek(position);
+    }
+
+    /// The picture waits until the pointer is released, so crossing the game
+    /// does not flash the scoreboard on the way.
+    pub fn scrub(&mut self, drag: &rune::Drag) {
+        let Some(marks) = self.playing.as_ref().and_then(|playing| playing.timeline.clone()) else { return };
+        if !marks.seekable || marks.duration <= 0.0 || drag.w <= 1.0 { return }
+        if drag.phase == rune::Phase::Down {
+            if let Some(playing) = &mut self.playing { playing.scrub_from = playing.position; }
+        }
+        if drag.phase == rune::Phase::Up && drag.cancelled() {
+            if let Some(playing) = &mut self.playing {
+                playing.position = playing.scrub_from;
+                playing.scrubbing = false;
+                playing.chapter = timeline::chapter_at(&marks.chapters, playing.position).and_then(|name| timeline::safe_name(&name).map(str::to_string));
+            }
+            return;
+        }
+        let fraction = (drag.x / drag.w).clamp(0.0, 1.0) as f64;
+        let (position, chapter) = timeline::apply(&marks, 0.0, timeline::Seek::To(fraction * marks.duration));
+        let Some(playing) = &mut self.playing else { return };
+        playing.position = position;
+        playing.chapter = chapter;
+        playing.show_chapter_until = self.now + CHROME_SECONDS;
+        self.chrome_until = self.now + CHROME_SECONDS;
+        playing.scrubbing = drag.phase != rune::Phase::Up;
+        if drag.phase == rune::Phase::Up {
+            playing.pinned_until = self.now + 1.0;
+            playing.stream.seek(position);
+        }
     }
 }
 
@@ -242,6 +297,19 @@ fn poll(s: &mut State, now: f64, tx: &mut Tx) -> bool {
         if phase != playing.phase {
             playing.phase = phase;
             changed = true;
+        }
+        if let Some(marks) = playing.timeline.clone() {
+            if !playing.scrubbing && marks.duration > 0.0 {
+                let reported = playing.stream.position();
+                if reported.is_finite() && (now >= playing.pinned_until || (reported - playing.position).abs() < 0.75) {
+                    let next = reported.clamp(0.0, marks.duration);
+                    if (next - playing.position).abs() > 0.2 {
+                        playing.position = next;
+                        playing.chapter = timeline::chapter_at(&marks.chapters, next).and_then(|name| timeline::safe_name(&name).map(str::to_string));
+                        changed = true;
+                    }
+                }
+            }
         }
     }
     if matches!(s.playing.as_ref().map(|p| &p.phase), Some(Phase::Failed(_))) {
@@ -321,19 +389,35 @@ fn on_key(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
         s.stop(0);
         return true;
     }
-    if let Some(playing) = &mut s.playing {
-        if playing.stage == Stage::Full {
-            s.chrome_until = s.now + CHROME_SECONDS;
-            match &e.key {
-                Key::Escape | Key::Tab => playing.stage = Stage::Mini,
-                Key::Text(t) if t == " " => { playing.paused = !playing.paused; playing.stream.set_paused(playing.paused) }
-                Key::Text(t) if t == "m" => { playing.muted = !playing.muted; playing.stream.set_muted(playing.muted) }
-                Key::Text(t) if t == "o" => s.open_in_mpv(),
-                Key::Backspace => s.stop(0),
-                _ => {}
+    if s.playing.as_ref().is_some_and(|playing| playing.stage == Stage::Full) {
+        s.chrome_until = s.now + CHROME_SECONDS;
+        match &e.key {
+            Key::Escape | Key::Tab => {
+                if let Some(playing) = &mut s.playing { playing.stage = Stage::Mini }
             }
-            return true;
+            Key::Text(t) if t == " " => {
+                if let Some(playing) = &mut s.playing {
+                    playing.paused = !playing.paused;
+                    playing.stream.set_paused(playing.paused);
+                }
+            }
+            Key::Text(t) if t == "m" => {
+                if let Some(playing) = &mut s.playing {
+                    playing.muted = !playing.muted;
+                    playing.stream.set_muted(playing.muted);
+                }
+            }
+            Key::Text(t) if t == "o" => s.open_in_mpv(),
+            Key::Backspace => s.stop(0),
+            Key::Left => s.seek_replay(timeline::Seek::By(if e.mods.shift { -timeline::MINUTE } else { -timeline::STEP })),
+            Key::Right => s.seek_replay(timeline::Seek::By(if e.mods.shift { timeline::MINUTE } else { timeline::STEP })),
+            Key::Text(t) if t == "[" => s.seek_replay(timeline::Seek::Chapter(-1)),
+            Key::Text(t) if t == "]" => s.seek_replay(timeline::Seek::Chapter(1)),
+            _ => {}
         }
+        return true;
+    }
+    if let Some(playing) = &mut s.playing {
         // Home's own Tab moves to the sections line. Its footer says so, and the corner player must not take the key.
         if matches!(e.key, Key::Tab) && !matches!(s.view.mode.as_str(), "search" | "home") {
             playing.stage = Stage::Full;
@@ -556,9 +640,11 @@ mod click {
     #[cfg(not(target_os = "macos"))]
     fn corner_player(state: &mut State) {
         state.playing = Some(Playing {
-            stream: video::Stream { surface: rune::NativeSurface::new() },
+            stream: video::Stream::placeholder(rune::NativeSurface::new()),
             title: "Live".into(), command: vec![], phase: video::Phase::Playing, stage: Stage::Mini,
             paused: false, muted: false, reported: false,
+            timeline: None, position: 0.0, scrubbing: false, chapter: None,
+            show_chapter_until: 0.0, pinned_until: 0.0, scrub_from: 0.0,
         });
     }
 
@@ -596,9 +682,11 @@ mod click {
     fn a_full_screen_video_ignores_a_click_on_the_row_behind_it() {
         let mut state = screen("feeds", &results(4), 0);
         state.playing = Some(Playing {
-            stream: video::Stream { surface: rune::NativeSurface::new() },
+            stream: video::Stream::placeholder(rune::NativeSurface::new()),
             title: "Live".into(), command: vec![], phase: video::Phase::Playing, stage: Stage::Full,
             paused: false, muted: false, reported: false,
+            timeline: None, position: 0.0, scrubbing: false, chapter: None,
+            show_chapter_until: 0.0, pinned_until: 0.0, scrub_from: 0.0,
         });
         let mut rt = runtime(state);
         let (x, y) = rt.find("row-2").unwrap_or((300.0, 300.0));
@@ -607,5 +695,35 @@ mod click {
         rt.pointer_up(x, y);
         rt.frame(1.0 / 60.0);
         assert!(rt.state.sent_keys.is_empty(), "full-screen video lets the click through: {:?}", rt.state.sent_keys);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn dragging_a_replay_timeline_moves_the_playhead_and_shows_no_score() {
+        let mut state = screen("feeds", &results(2), 0);
+        state.playing = Some(Playing {
+            stream: video::Stream::placeholder(rune::NativeSurface::new()),
+            title: "Bulls vs Celtics".into(), command: vec![], phase: video::Phase::Playing, stage: Stage::Full,
+            paused: false, muted: false, reported: false,
+            timeline: Some(server::Timeline {
+                duration: 100.0, seekable: true,
+                chapters: vec![
+                    server::Chapter { name: "Q1".into(), start: 0.0 },
+                    server::Chapter { name: "Q2".into(), start: 50.0 },
+                ],
+            }),
+            position: 0.0, scrubbing: false, chapter: None, show_chapter_until: 0.0, pinned_until: 0.0, scrub_from: 0.0,
+        });
+        let mut rt = runtime(state);
+        let (x, y) = rt.find("timeline").unwrap_or_else(|| panic!("the replay timeline is not on screen"));
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        rt.frame(1.0 / 60.0);
+        let playing = rt.state.playing.as_ref().unwrap();
+        assert!(playing.position > 1.0, "a drag moves the playhead, it stayed at {}", playing.position);
+        let label = playing.chapter.clone().unwrap_or_default();
+        assert!(!label.to_ascii_lowercase().contains("score") && !label.contains('-'), "the timeline showed {label}");
+        assert!(rt.state.sent_keys.is_empty(), "scrubbing stays in the window: {:?}", rt.state.sent_keys);
     }
 }

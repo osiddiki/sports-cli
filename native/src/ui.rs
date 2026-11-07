@@ -322,6 +322,7 @@ fn stage(s: &State, playing: &Playing, k: &Ink) -> El {
     let (label, tone) = match &playing.phase {
         Phase::Loading => ("Tuning in".to_string(), k.dim),
         Phase::Playing if playing.paused => ("Paused".to_string(), k.dim),
+        Phase::Playing if playing.timeline.is_some() => ("Replay".to_string(), k.dim),
         Phase::Playing => ("Live".to_string(), k.accent),
         Phase::Stalled => ("Signal weak, holding".to_string(), oklch(0.8, 0.13, 85.0)),
         Phase::Failed(why) => (format!("No picture: {why}"), oklch(0.7, 0.15, 25.0)),
@@ -340,13 +341,55 @@ fn stage(s: &State, playing: &Playing, k: &Ink) -> El {
         .child(el().size(8.0, 8.0).mt(6.0).radius(4.0).fill(tone))
         .child(col().gap(3.0).child(text(playing.title.as_str()).font(TextStyle::new(16.0, 620.0)).color(k.text))
             .child(text(format!("{label}{}{size}{}", if size.is_empty() { "" } else { "  ·  " }, if playing.muted { "  ·  muted" } else { "" })).font(SMALL).color(tone)));
-    let hints = [("space", "pause"), ("m", "mute"), ("esc", "browse"), ("o", "mpv"), ("⌘.", "stop")];
+    let mut hints = vec![("space", "pause"), ("m", "mute"), ("esc", "browse"), ("o", "mpv"), ("⌘.", "stop")];
+    if playing.timeline.is_some() {
+        hints.splice(0..0, [("← →", "10s"), ("⇧←", "1m"), ("[ ]", "period")]);
+    }
     let mut bottom = row().key("chrome-bottom").gap(14.0).items_center();
     for (key, what) in hints {
         bottom = bottom.child(row().gap(6.0).items_center().child(keycap(key, false, k)).child(text(what).font(SMALL).color(k.dim)));
     }
     let bottom = col().key("chrome-bottom-wrap").absolute(0.0, 0.0).w_full().h_full().justify_end().px(28.0).pb(22.0).child(bottom);
-    frame.child(col().key("chrome").absolute(0.0, 0.0).w_full().h_full().opacity(if chrome { 1.0 } else { 0.0 }).motion(motion::SETTLE).child(top).child(bottom))
+    let mut frame = frame.child(col().key("chrome").absolute(0.0, 0.0).w_full().h_full().opacity(if chrome { 1.0 } else { 0.0 }).motion(motion::SETTLE).child(top).child(bottom));
+    if playing.timeline.is_some() {
+        let lift = if chrome { 64.0 } else { 28.0 };
+        frame = frame.child(col().key("replay-time").absolute(0.0, 0.0).w_full().h_full().justify_end().px(28.0).pb(lift).child(replay_bar(s, playing, k)));
+    }
+    frame
+}
+
+fn replay_bar(s: &State, playing: &Playing, k: &Ink) -> El {
+    let marks = playing.timeline.as_ref().expect("replay bar is only built when a timeline exists");
+    let duration = marks.duration.max(0.001);
+    let played = (playing.position / duration).clamp(0.0, 1.0) as f32;
+    let show = playing.scrubbing || s.now < playing.show_chapter_until;
+    let name = if show { playing.chapter.as_deref().and_then(crate::timeline::safe_name).unwrap_or("") } else { "" };
+    let when = format!("{}  /  {}", crate::timeline::clock(playing.position), crate::timeline::clock(duration));
+    let track = row().key("timeline-track").absolute(0.0, 7.0).w_full().h(4.0).radius(2.0)
+        .child(el().grow(played.max(0.0001)).h_full().fill(k.accent))
+        .child(el().grow((1.0 - played).max(0.0001)).h_full().fill(k.line));
+    let mut ticks = row().key("timeline-ticks").absolute(0.0, 5.0).w_full().h(8.0);
+    let chapters = &marks.chapters;
+    if let Some(first) = chapters.first() {
+        if first.start > 0.5 {
+            ticks = ticks.child(el().grow((first.start / duration) as f32).h_full());
+        }
+    }
+    for (index, chapter) in chapters.iter().enumerate() {
+        let end = chapters.get(index + 1).map(|next| next.start).unwrap_or(duration);
+        let span = ((end - chapter.start) / duration).max(0.001) as f32;
+        ticks = ticks.child(row().grow(span).h_full().child(el().w(2.0).h(8.0).fill(k.dim)).child(el().grow(1.0).h_full()));
+    }
+    if chapters.is_empty() {
+        ticks = ticks.child(el().grow(1.0).h_full());
+    }
+    col().key("timeline").w_full().gap(4.0)
+        .on_drag(|state: &mut State, drag, _| state.scrub(drag))
+        .child(row().h(16.0).items_center()
+            .child(text(name).font(SMALL).color(k.text))
+            .child(el().grow(1.0))
+            .child(text(when.as_str()).font(SMALL).color(k.dim)))
+        .child(el().key("timeline-bar").w_full().h(18.0).child(track).child(ticks))
 }
 
 fn mini(playing: &Playing, k: &Ink) -> El {
