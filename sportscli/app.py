@@ -22,7 +22,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
-from . import providers, relay, grading, checks, replays, smart_search, players, ad_mute, ai_ad_mute, breaks, tv
+from . import providers, relay, grading, checks, replays, smart_search, players, ad_mute, ai_ad_mute, breaks, tv, timeline
 from zoneinfo import ZoneInfo
 from dataclasses import dataclass, field
 
@@ -75,6 +75,8 @@ HELP_LINES = [
     'AD MUTE        --ad-mute: marked replays    --ai-ad-mute: local NBA detector    --ai-ad-observe: preview',
     'START          --tv: live TV    --league nba: a schedule    --search: search',
     'While a stream plays, keys go to mpv: Space pause, m mute, f fullscreen, q back here.',
+    'REPLAY         In the window, Left/Right jump 10s and Shift jumps a minute. [ ] jump a period.',
+    '               mpv keeps its own seek keys. [ ] jump a period there too, when the replay has them.',
     'Finished games and explicitly offline sources are hidden from live lists.',
     'Keep this terminal open while playing a local relay stream.',
 ]
@@ -2237,6 +2239,34 @@ class App:
             self.message = setup_hint('mpv is not installed', '--setup', 'mpv is not installed or not on PATH.'); return False
         return True
 
+    def replay_mark_dir(self):
+        directory = getattr(self, 'replay_marks_dir', None)
+        if directory is None:
+            directory = pathlib.Path(tempfile.mkdtemp(prefix='sports-replay-'))
+            self.replay_marks_dir = directory
+        return directory
+
+    def replay_marks(self, url, headers, command):
+        if self.feed_context != 'replay':
+            return command, None, ''
+        try:
+            manifest = timeline.media_playlist(url, headers)
+            sport = LEAGUES.get(self.league, (None, None, None))[2]
+            built = timeline.from_playlist(manifest, sport)
+        except (OSError, ValueError, TypeError, urllib.error.URLError):
+            return command, None, ''
+        if not built.seekable:
+            return command, None, " This replay playlist has no end, so it can't be seeked."
+        command = list(command)
+        if built.chapters:
+            directory = self.replay_mark_dir()
+            chapters = directory / 'chapters.ffmeta'
+            binds = directory / 'chapters.conf'
+            chapters.write_text(timeline.ffmetadata(built), encoding='utf-8')
+            binds.write_text(timeline.CHAPTER_BINDS, encoding='utf-8')
+            command[1:1] = timeline.player_args(chapters, binds)
+        return command, built.as_dict(), ''
+
     def play(self, feed, *, resolved=None):
         if not self.player_ready(feed): return
         iina = find_iina() if self.player == 'iina' else None
@@ -2295,6 +2325,8 @@ class App:
                        else ' The installed ad model was not trained on this league.')
         temporary, monitor, preview = None, None, None
         command = mpv_command(url, headers, cache=self.cache, terminal_video=self.terminal_video)
+        command, _marks, seek_note = self.replay_marks(url, headers, command)
+        ad_note += seek_note
         if self.record_dir:
             # mpv writes the stream it receives, so nothing is downloaded twice.
             name = re.sub(r'[^A-Za-z0-9]+', '-', f'{self.league}-{feed.source}-{dt.datetime.now():%Y%m%d-%H%M%S}').strip('-')
@@ -2574,6 +2606,8 @@ class App:
             helper = self.helper if self.resolver_owned else None
             self.resolver_owned = False
         if local_relay: local_relay.close()
+        marks = getattr(self, 'replay_marks_dir', None)
+        if marks: shutil.rmtree(marks, ignore_errors=True)
         if helper and helper.poll() is None:
             helper.terminate()
             try: helper.wait(timeout=3)
