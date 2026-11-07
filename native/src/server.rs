@@ -63,6 +63,21 @@ pub struct View {
     pub seq: u64,
 }
 
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+pub struct Chapter {
+    pub name: String,
+    pub start: f64,
+}
+
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+pub struct Timeline {
+    pub duration: f64,
+    #[serde(default)]
+    pub seekable: bool,
+    #[serde(default)]
+    pub chapters: Vec<Chapter>,
+}
+
 #[derive(Deserialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Event {
@@ -72,6 +87,8 @@ pub enum Event {
         #[serde(default)]
         headers: HashMap<String, String>,
         command: Vec<String>,
+        #[serde(default)]
+        timeline: Option<Timeline>,
     },
     Prompt {
         label: String,

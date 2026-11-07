@@ -61,10 +61,13 @@ class Headless(app.App):
                 self.message = f'Stream unavailable: {exc}.'; return
         url, headers = resolved
         note = self.stream_notes.pop(url, '')
+        command = app.mpv_command(url, headers, cache=self.cache)
+        command, marks, seek_note = self.replay_marks(url, headers, command)
         self.playing = feed
-        self.events.append({'type': 'play', 'title': self.title(), 'url': url, 'headers': dict(headers),
-                            'command': app.mpv_command(url, headers, cache=self.cache)})
-        self.message = 'Playing; keep browsing here.' + note
+        event = {'type': 'play', 'title': self.title(), 'url': url, 'headers': dict(headers), 'command': command}
+        if marks: event['timeline'] = marks
+        self.events.append(event)
+        self.message = 'Playing; keep browsing here.' + note + seek_note
 
     def player_exited(self, code):
         feed, self.playing = self.playing, None

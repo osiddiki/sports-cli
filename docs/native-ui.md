@@ -42,6 +42,10 @@ The screens take the terminal app's keys unchanged; the footer lists them for ea
 | | Esc or Tab | shrink to the corner and keep browsing |
 | | o | open in mpv instead |
 | | Backspace or ⌘. | stop |
+| Full replay | Left / Right | jump 10 seconds |
+| | Shift Left / Shift Right | jump a minute |
+| | [ / ] | previous or next period |
+| | drag the bar | move through the replay |
 | Browsing with a corner player | Tab | full size, except on Home, where Tab moves to the sections line |
 | | ⌘. | stop |
 | Prompt | Enter / Esc | answer / cancel (an empty answer clears) |

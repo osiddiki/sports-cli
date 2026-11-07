@@ -5,9 +5,14 @@
 
 use rune::NativeSurface;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
+#[cfg(target_os = "macos")]
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+#[cfg(target_os = "macos")]
+use std::sync::atomic::AtomicBool;
+#[cfg(target_os = "macos")]
+use std::time::Instant;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Phase {
@@ -168,6 +173,16 @@ mod mac {
         pub fn set_muted(&self, muted: bool) {
             unsafe { self.player.setMuted(muted) };
         }
+
+        pub fn position(&self) -> f64 {
+            let time = unsafe { self.player.currentTime() };
+            unsafe { time.seconds() }
+        }
+
+        pub fn seek(&self, seconds: f64) {
+            let time = unsafe { objc2_core_media::CMTime::with_seconds(seconds.max(0.0), 600) };
+            unsafe { self.player.seekToTime(time) };
+        }
     }
 
     impl Drop for Stream {
@@ -200,6 +215,7 @@ pub fn idle(time: Duration) {
 #[cfg(not(target_os = "macos"))]
 pub struct Stream {
     pub surface: NativeSurface,
+    position_ms: AtomicU64,
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -207,9 +223,18 @@ impl Stream {
     pub fn open(_: &str, _: &HashMap<String, String>, _: rune::Waker) -> Result<Stream, String> {
         Err("in-window video is macOS only; press o to open mpv".into())
     }
+    /// A stand-in for tests. There is no picture; seeks still move the stored playhead.
+    pub fn placeholder(surface: NativeSurface) -> Stream {
+        Stream { surface, position_ms: AtomicU64::new(0) }
+    }
     pub fn phase(&self) -> Phase { Phase::Failed("unsupported".into()) }
     pub fn frames(&self) -> u64 { 0 }
     pub fn size(&self) -> Option<(f32, f32)> { None }
     pub fn set_paused(&self, _: bool) {}
     pub fn set_muted(&self, _: bool) {}
+    pub fn position(&self) -> f64 { self.position_ms.load(Ordering::Relaxed) as f64 / 1000.0 }
+    pub fn seek(&self, seconds: f64) {
+        let ms = (seconds.max(0.0) * 1000.0).round() as u64;
+        self.position_ms.store(ms, Ordering::Relaxed);
+    }
 }
