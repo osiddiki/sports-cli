@@ -2,6 +2,7 @@
 """Sports terminal stream picker with an optional native fuzzy matcher."""
 from __future__ import annotations
 import argparse
+import contextlib
 import curses
 import concurrent.futures
 import datetime as dt
@@ -71,8 +72,9 @@ HELP_LINES = [
     'SOURCES        Enter: play    x: test    i: show media URL    o: provider    a: home or away feed',
     '               g: rank by checks    u: play a pasted media URL    v: show sources that failed checks',
     'SEARCH         Type a team, player, game or channel    Up/Down: select    Esc: back    Ctrl-X: quit',
-    'SETTINGS       Player, cache, terminal video, backup source, ad breaks, add-on, PPV resolver',
-    'AD MUTE        --ad-mute: marked replays    --ai-ad-mute: local NBA detector    --ai-ad-observe: preview',
+    'SETTINGS       Player, cache, terminal video, backup source, ad breaks, ad mute, ad detector, add-on, PPV',
+    'AD MUTE        Settings, this run: off, marked replays, preview (sound stays on), or mute ads',
+    'AD DETECTOR    Choose Ad detector in Settings to install it. Opening the app does not download it.',
     'START          --tv: live TV    --league nba: a schedule    --search: search',
     'While a stream plays, keys go to mpv: Space pause, m mute, f fullscreen, q back here.',
     'REPLAY         In the window, Left/Right jump 10s and Shift jumps a minute. [ ] jump a period.',
@@ -80,6 +82,13 @@ HELP_LINES = [
     'Finished games and explicitly offline sources are hidden from live lists.',
     'Keep this terminal open while playing a local relay stream.',
 ]
+
+AD_MUTE_CHOICES = (
+    ('off', 'off'),
+    ('marked', 'marked replays'),
+    ('preview', 'preview, sound stays on'),
+    ('mute', 'mute ads'),
+)
 
 
 def request(url, *, data=None, headers=None, timeout=12):
@@ -960,9 +969,11 @@ class App:
         self.ad_breaks = config.get('ad_breaks') if config.get('ad_breaks') in breaks.MODES else 'mute'
         self.stream_notes = {}
         self.record_dir = None
-        self.ad_mute = ad_mute_enabled
-        self.ai_ad_mute = ai_ad_mute_enabled
-        self.ai_ad_observe = ai_ad_observe_enabled
+        if ai_ad_mute_enabled: self.ad_choice = 'mute'
+        elif ai_ad_observe_enabled: self.ad_choice = 'preview'
+        elif ad_mute_enabled: self.ad_choice = 'marked'
+        else: self.ad_choice = 'off'
+        self.ad_install = None
         self.player = config.get('player', 'mpv') if config.get('player', 'mpv') in ('mpv', 'iina', 'celluloid') else 'mpv'
         self.rank_by_checks = False
 
@@ -2228,7 +2239,7 @@ class App:
         if (self.ai_ad_mute or self.ai_ad_observe) and self.player != 'mpv':
             self.message = 'AI ad detection requires mpv. Press p to switch players.'; return False
         if (self.ai_ad_mute or self.ai_ad_observe) and not ai_ad_mute.installed():
-            self.message = setup_hint('AI detector not installed', '--setup-ads', 'AI detector not installed. Run ./sports-cli --install-ad-model.'); return False
+            self.message = 'Ad detector is not installed. Choose Ad detector in Settings.'; return False
         iina = find_iina() if self.player == 'iina' else None
         celluloid = find_celluloid() if self.player == 'celluloid' else None
         if self.player == 'iina' and not iina:
@@ -2859,7 +2870,9 @@ class App:
             ('Cache', f'{self.cache} seconds', self.cycle_cache),
             ('Video in the terminal', 'on' if self.terminal_video else 'off', self.toggle_terminal_video),
             ('Backup source for live streams', 'on' if self.dual_stream else 'off', self.toggle_backup),
-            ('During detected ads', breaks.LABELS[self.ad_breaks] + ('' if self.ai_ad_mute else ' (needs --ai-ad-mute)'), self.cycle_ad_breaks),
+            ('During detected ads', breaks.LABELS[self.ad_breaks] + ('' if self.ai_ad_mute else ' (choose mute ads)'), self.cycle_ad_breaks),
+            ('Ad mute', dict(AD_MUTE_CHOICES)[self.ad_mute_choice()], self.cycle_ad_mute),
+            ('Ad detector', self.ad_detector_value(), self.install_ad_detector),
             ('Sports add-on', 'set' if self.config.get('addon') else 'none', self.configure_addon),
             ('PPV resolver folder', self.config.get('resolver_dir') or 'default', self.configure_resolver),
         ]
@@ -2894,7 +2907,57 @@ class App:
         self.ad_breaks = breaks.MODES[(breaks.MODES.index(self.ad_breaks)+1) % len(breaks.MODES)]
         self.config['ad_breaks'] = self.ad_breaks; save_config(self.config)
         self.message = 'During detected ads: ' + breaks.LABELS[self.ad_breaks] + '.'
-        if not self.ai_ad_mute: self.message += ' Applies when run with --ai-ad-mute.'
+        if not self.ai_ad_mute: self.message += ' Choose mute ads under Ad mute to use it.'
+
+    @property
+    def ad_mute(self):
+        return self.ad_mute_choice() == 'marked'
+
+    @property
+    def ai_ad_observe(self):
+        return self.ad_mute_choice() == 'preview'
+
+    @property
+    def ai_ad_mute(self):
+        return self.ad_mute_choice() == 'mute'
+
+    def ad_mute_choice(self):
+        return getattr(self, 'ad_choice', 'off')
+
+    def cycle_ad_mute(self):
+        keys = [key for key, _ in AD_MUTE_CHOICES]
+        choice = keys[(keys.index(self.ad_mute_choice()) + 1) % len(keys)]
+        self.ad_choice = choice
+        label = dict(AD_MUTE_CHOICES)[choice]
+        self.message = 'Ad mute is off.' if choice == 'off' else f'Ad mute: {label}.'
+        if choice == 'mute': self.message = 'Ad mute: mute ads. This can mute game coverage.'
+        if choice in ('preview', 'mute') and self.player != 'mpv': self.message += ' This needs mpv.'
+        if choice in ('preview', 'mute') and not ai_ad_mute.installed(): self.message += ' The ad detector is not installed.'
+
+    def ad_detector_value(self):
+        if self.ad_install == 'running': return 'installing'
+        return 'installed' if ai_ad_mute.installed() else 'not installed'
+
+    def install_ad_detector(self):
+        if self.ad_install == 'running':
+            self.message = 'Installing the ad detector.'; return
+        if ai_ad_mute.installed():
+            self.message = 'Ad detector is installed.'; return
+        self.ad_install = 'running'
+        self.message = 'Installing the ad detector. This downloads about 150 MB.'
+        threading.Thread(target=self._install_ad_detector, name='ad-detector', daemon=True).start()
+
+    def _install_ad_detector(self):
+        code = 1
+        try:
+            with open(os.devnull, 'w') as sink, contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+                code = ai_ad_mute.install()
+        except Exception:
+            pass
+        ready = code == 0 and ai_ad_mute.installed()
+        self.ad_install = None
+        if self.closed.is_set(): return
+        self.message = 'Ad detector is installed.' if ready else 'Ad detector installation failed.'
 
     def run(self):
         try:

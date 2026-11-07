@@ -471,7 +471,7 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_missing_pieces_name_the_installer_command(self):
         app = nba.App.__new__(nba.App)
-        app.player, app.ai_ad_mute, app.ai_ad_observe = 'mpv', False, False
+        app.player, app.ad_choice = 'mpv', 'off'
         feed = nba.Feed('Example', 'Source', url='https://example.com/a.m3u8', kind='direct')
         with patch.object(nba.shutil, 'which', return_value=None):
             with patch.dict(nba.os.environ, {'SPORTS_CLI_COMMAND': 'sports'}):
