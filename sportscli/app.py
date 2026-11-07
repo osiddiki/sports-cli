@@ -259,6 +259,12 @@ def check_age(seconds):
     return 'now' if minutes == 0 else f'{minutes}m' if minutes < 60 else f'{minutes // 60}h'
 
 
+def listed_height(feed):
+    """The resolution a source's own label claims (`Source 1 | 1080p`), or 0."""
+    found = re.search(r'(?:^|\|)\s*(\d{3,4})p\s*(?:\||$)', feed.label, re.I)
+    return int(found.group(1)) if found else 0
+
+
 def smoothness(speed):
     """0 smooth, 1 unmeasured or enough, 2 likely to lag: video downloaded per second of download time."""
     return 1 if speed is None else 0 if speed >= 2 else 1 if speed >= 1.2 else 2
@@ -943,11 +949,13 @@ class App:
                 return (reachability, *grading.score(history.get(grading.source_key(feed), {})))
             feeds.sort(key=rank, reverse=True)
         else:
-            # Working sources first, smooth before laggy, then by measured resolution; the rest keep directory order.
+            # Working sources first, smooth before laggy, then by resolution: measured, else what the
+            # label says, since a check that reads no height must not sink a 1080p source below 540p.
             def order(feed):
                 status = self.manual_status.get(id(feed), self.auto_checks.get(id(feed)))
                 group = 0 if status == 'OK' else 2 if self.failed_check(feed) else 1
-                return (group, smoothness(self.auto_speeds.get(id(feed))), -self.auto_heights.get(id(feed), 0))
+                height = self.auto_heights.get(id(feed)) or listed_height(feed)
+                return (group, smoothness(self.auto_speeds.get(id(feed))), -height)
             feeds.sort(key=order)
         return feeds
 

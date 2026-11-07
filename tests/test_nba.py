@@ -445,6 +445,18 @@ class DiscoveryTests(unittest.TestCase):
         app.poll_auto_checks()
         self.assertEqual(app.visible_feeds(), [hd, sd, unknown])
 
+    def test_a_listed_resolution_counts_when_the_check_measured_none(self):
+        app = nba.App(None, {})
+        self.addCleanup(app.close)
+        app.feed_generation = 1
+        measured, listed, bare = feeds = [nba.Feed('Source', label, url='https://example.com/' + str(i), kind='direct')
+                                          for i, label in enumerate(('Server 6', 'Source 1 | 1080p', 'Server 5'))]
+        app.feeds = feeds
+        for feed in feeds: app.auto_checks[id(feed)] = 'checking'
+        for feed, height in ((measured, 540), (listed, None), (bare, None)): app.auto_queue.put((1, feed, 'OK', height, 6.0))
+        app.poll_auto_checks()
+        self.assertEqual(app.visible_feeds(), [listed, measured, bare])
+
     def test_mpv_headers_are_arguments_not_shell_and_reject_injection(self):
         command = nba.mpv_command('https://example.com/a.m3u8',
                                   {'Referer':'https://example.com/', 'Bad\nHeader':'x', 'X-Unsafe':'a\nb'})
