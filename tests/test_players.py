@@ -48,6 +48,20 @@ class PlayerDirectoryTests(unittest.TestCase):
         directory.search('stephen', 'nba', request)
         self.assertEqual(len(calls), 4, 'cached roster should not be downloaded again')
 
+    def test_rosters_are_checked_at_once(self):
+        directory = players.Directory(self.index, app.LEAGUES)
+        def request(url, **kwargs):
+            if '/search/v2?' in url: return self.rows()
+            time.sleep(.4)
+            return {'athletes':[{'id':'3975'}, {'id':'4433403'}]}
+        updates = []
+        started = time.monotonic()
+        found = directory.search('curry', None, request, on_update=updates.append)
+        self.assertLess(time.monotonic() - started, .65)
+        self.assertEqual([(x.name, x.verified) for x in found], [('Stephen Curry', True), ('Caitlin Clark', True)])
+        self.assertEqual(len(updates), 3, 'one tentative list, then one update per roster in order')
+        self.assertEqual([x.verified for x in updates[1]], [True, False])
+
     def test_unavailable_roster_is_labeled_unverified(self):
         directory = players.Directory(self.index, app.LEAGUES)
         def request(url, **kwargs):

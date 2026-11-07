@@ -102,16 +102,21 @@ class Directory:
             if len(selected) >= 8: break
         result = selected
         if result: on_update(list(result))
-        for league_id, team_id in checked:
-            if canceled(): raise concurrent.futures.CancelledError()
-            team = next(item.team for item in selected
-                        if (item.team.league, item.team.id) == (league_id, team_id))
-            ids = self.roster(team, request)
-            if canceled(): raise concurrent.futures.CancelledError()
-            if ids is not None:
-                result = [Player(item.id, item.name, item.team, True)
-                          if (item.team.league, item.team.id) == (league_id, team_id) else item
-                          for item in result
-                          if (item.team.league, item.team.id) != (league_id, team_id) or item.id in ids]
-            on_update(list(result))
+        if not checked: return result
+        if canceled(): raise concurrent.futures.CancelledError()
+        teams = {(item.team.league, item.team.id): item.team for item in reversed(selected)}
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(checked))
+        try:
+            pending = [(key, pool.submit(self.roster, teams[key], request)) for key in checked]
+            for (league_id, team_id), future in pending:
+                ids = future.result()
+                if canceled(): raise concurrent.futures.CancelledError()
+                if ids is not None:
+                    result = [Player(item.id, item.name, item.team, True)
+                              if (item.team.league, item.team.id) == (league_id, team_id) else item
+                              for item in result
+                              if (item.team.league, item.team.id) != (league_id, team_id) or item.id in ids]
+                on_update(list(result))
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
         return result
