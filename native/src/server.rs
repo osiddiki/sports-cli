@@ -21,6 +21,9 @@ pub struct Row {
     pub style: String,
     #[serde(default)]
     pub pick: bool,
+    /// Where up and down move to reach this row. Search draws players before other teams, so this is the result index, not the count of rows above.
+    #[serde(default)]
+    pub cursor: Option<i64>,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
