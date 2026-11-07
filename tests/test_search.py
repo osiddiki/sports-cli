@@ -266,6 +266,45 @@ class SearchTests(unittest.TestCase):
                          ['Basketball Replays', 'Basketball Video'])
         app.close()
 
+    def test_nba_replay_groups_full_name_listings_without_a_team(self):
+        day = dt.date(2026, 11, 6)
+        scored = replays.Replay(
+            'Basketball Replays',
+            'San Antonio Spurs vs. Sacramento Kings 121-98 - NBA Regular Season - Full Game Replay - 6 November 2026',
+            'https://basketballreplays.net/spurs')
+        plain = replays.Replay(
+            'Basketball Video',
+            'San Antonio Spurs vs Sacramento Kings - NBA - Full Game Replay - November 6, 2026',
+            'https://basketball-video.com/spurs')
+        short = replays.Replay(
+            'WatchReplay',
+            'Spurs vs Kings - NBA - Full Game Replay - November 6, 2026',
+            'https://example.com/short')
+        app = nba.App(None, {})
+        app.mode = 'search'
+        app.search_query = 'nba replay'
+        app.search_index = self.index
+        app.search_plan = search.make_plan(self.index, search.parse_query('nba replay', day))
+        hits = search.rank(self.index, app.search_plan, [], [('nba', scored), ('nba', plain), ('nba', short)], day)
+        app.search_results = app.grouped_search_results(hits)
+        bundles = [hit.item for hit in app.search_results if hit.kind == 'bundle']
+        full = [bundle for bundle in bundles if bundle.title == 'San Antonio Spurs vs Sacramento Kings']
+        self.assertEqual(len(full), 1)
+        self.assertNotIn('121', full[0].title)
+        shown = '\n'.join(text for _, text, _ in app.search_rows())
+        self.assertEqual(shown.count('San Antonio Spurs vs Sacramento Kings'), 1)
+        self.assertNotIn('121', shown)
+        self.assertNotIn('Full Game Replay', shown)
+        self.assertIn('Spurs vs Kings', shown)
+        self.assertNotIn('https://example.com/short', [item.url for item in full[0].sources])
+        app.search_position = next(i for i, hit in enumerate(app.search_results)
+                                   if hit.kind == 'bundle' and hit.item is full[0])
+        app.open_global_result()
+        self.assertEqual(app.mode, 'replay_sources')
+        self.assertEqual(sorted(source.source for source in app.current_bundle.sources),
+                         ['Basketball Replays', 'Basketball Video'])
+        app.close()
+
     def test_live_preview_continues_loading_after_opening_the_source_list(self):
         app = nba.App(None,{})
         app.mode = 'feeds'; app.feed_context = 'live'

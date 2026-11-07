@@ -241,6 +241,21 @@ class SearchSideHit:
     def key(self): return ('side', self.item.league, self.item.id, self.side)
 
 
+def bundle_replays(hits, league=None):
+    """Group replay hits with the same game key the replay list uses."""
+    by_league = {}
+    for hit in hits:
+        if hit.kind != 'replay': continue
+        if league is not None and hit.league != league: continue
+        by_league.setdefault(hit.league, []).append(hit.item)
+    bundles = []
+    for name, listings in by_league.items():
+        for game in replays.games(listings, name):
+            bundles.append(ReplayBundle(game.league, game.title, game.date, list(game.sources), game.identity))
+    bundles.sort(key=lambda bundle: bundle.date or dt.date.min, reverse=True)
+    return bundles
+
+
 def check_age(seconds):
     minutes = max(0, int(seconds // 60))
     return 'now' if minutes == 0 else f'{minutes}m' if minutes < 60 else f'{minutes // 60}h'
@@ -981,7 +996,8 @@ class App:
                         rows.append((None, 'TV CHANNELS', 'channel-heading'))
                     rows.append((i, f'   {hit.title}', ''))
                 else:
-                    rows.append((i, f'{hit.kind.upper()}  {hit.title}  ·  {LEAGUES[hit.league][0]}', ''))
+                    label = 'REPLAY' if hit.kind in ('replay', 'bundle') else hit.kind.upper()
+                    rows.append((i, f'{label}  {hit.title}  ·  {LEAGUES[hit.league][0]}', ''))
             return rows
         rows = [(0, f'{LEAGUES[hits[0].league][0]}  {hits[0].title}', 'team')]
         live = [(i, hit) for i, hit in enumerate(hits) if hit.kind in ('live', 'side')]
@@ -1453,7 +1469,14 @@ class App:
             if self.mode == 'search' and self.search_preview_key is not None:
                 self.search_preview_generation += 1
                 self.search_preview_key = None; self.search_preview_sections = {}; self.search_preview_pending = 0
-            return hits
+            grouped, placed = [], False
+            for hit in hits:
+                if hit.kind != 'replay':
+                    grouped.append(hit); continue
+                if not placed:
+                    grouped.extend(ReplayBundleHit(bundle) for bundle in bundle_replays(hits))
+                    placed = True
+            return grouped
         team = smart_search.Hit('team', primary.league, primary.display, primary, 1.0)
         games = [hit for hit in hits if hit.league == primary.league and hit.kind in ('live', 'upcoming')]
         live = [hit for hit in games if hit.kind == 'live']
@@ -1474,10 +1497,7 @@ class App:
                 for side in ('home', 'away'):
                     count = sum(feed.side == side and feed.kind != 'web' for feed in preview)
                     if count: result.append(SearchSideHit(hit.item, side, count))
-        listings = [hit.item for hit in hits if hit.kind == 'replay' and hit.league == primary.league]
-        bundles = {game.identity: ReplayBundle(game.league, game.title, game.date, list(game.sources), game.identity)
-                   for game in replays.games(listings, primary.league)}
-        ordered = sorted(bundles.values(), key=lambda bundle: bundle.date or dt.date.min, reverse=True)
+        ordered = bundle_replays(hits, primary.league)
         limit = 10
         result.extend(ReplayBundleHit(bundle) for bundle in ordered[:limit])
         result.extend(upcoming[:2] if len(self.search_plan.query.fragments) == 1 else upcoming)
