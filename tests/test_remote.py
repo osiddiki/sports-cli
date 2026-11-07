@@ -1,4 +1,8 @@
 """The headless app behind the OpenTUI front end takes the same keys through the same statechart."""
+import datetime as dt
+import queue
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -107,6 +111,67 @@ class RemoteTests(unittest.TestCase):
         self.remote.exited(3)
         self.assertIn(id(feed), app.hidden_feeds)
         self.assertIn('status 3', app.message)
+
+
+class HomeTonightTests(unittest.TestCase):
+    def setUp(self):
+        self.patches = [patch.object(nba, 'save_config', lambda config: None),
+                        patch.object(nba, 'find_iina', lambda: None), patch.object(nba, 'find_celluloid', lambda: None)]
+        for item in self.patches: item.start()
+
+    def tearDown(self):
+        for item in self.patches: item.stop()
+
+    def test_moving_onto_a_section_keeps_the_game_scroll(self):
+        start = dt.datetime(2026, 11, 7, 23, tzinfo=dt.timezone.utc)
+        app = nba.App(Screen(), {})
+        app.tonight = [nba.Game(str(i), f'Match {i:02d}', start, 'Home', 'Away', 'Home', 'Away') for i in range(30)]
+        app.home_index = 29
+        app.render()
+        on_game = '\n'.join(app.scr.text[y] for y in sorted(app.scr.text))
+        self.assertIn('Match 29', on_game)
+        self.assertNotIn('Match 00', on_game)
+        app.home_index = len(app.tonight)
+        app.render()
+        on_section = '\n'.join(app.scr.text[y] for y in sorted(app.scr.text))
+        self.assertIn('Match 29', on_section)
+        self.assertNotIn('Match 00', on_section)
+
+    def test_a_successful_reload_clears_a_failed_league(self):
+        app = nba.App(Screen(), {})
+        app.tonight_queue.put((app.tonight_generation, [], ['nba']))
+        app.poll_tonight()
+        self.assertIn('Could not load NBA', app.message)
+        app.tonight_queue.put((app.tonight_generation, list(GAMES), []))
+        app.poll_tonight()
+        self.assertNotIn('Could not load', app.message)
+        self.assertEqual(app.message, nba.App.ARRIVAL['home'])
+
+    def test_quit_cancels_tonights_fetch(self):
+        entered, release = threading.Event(), threading.Event()
+
+        def fetch(day, league):
+            entered.set(); release.wait(5); return []
+
+        app = nba.App(Screen(), {})
+        try:
+            with patch.object(nba, 'get_games', side_effect=fetch):
+                app.refresh_tonight()
+                self.assertTrue(entered.wait(1), 'the tonight fetch never started')
+                started = time.monotonic()
+                app.close()
+                item = None
+                while time.monotonic() - started < 0.5:
+                    try: item = app.tonight_queue.get_nowait()
+                    except queue.Empty: time.sleep(0.01)
+                    else: break
+                self.assertIsNotNone(item, 'quit left the tonight fetch running')
+                self.assertLess(time.monotonic() - started, 0.5)
+                self.assertEqual(item[1:], ([], []))
+                busy = [t.name for t in threading.enumerate() if t is not threading.main_thread() and not t.daemon]
+                self.assertEqual(busy, [])
+        finally:
+            release.set()
 
 
 if __name__ == '__main__':

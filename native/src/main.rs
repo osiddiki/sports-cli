@@ -6,7 +6,7 @@ mod server;
 mod ui;
 mod video;
 
-use rune::{AppSpec, Cx, El, Key, KeyEvent, Tx, Waker};
+use rune::{AppSpec, Cx, El, Key, KeyEvent, Mods, Tx, Waker};
 use server::{Event, Reply, Request, Server, View};
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::time::Duration;
@@ -334,7 +334,8 @@ fn on_key(s: &mut State, e: &KeyEvent, tx: &mut Tx) -> bool {
             }
             return true;
         }
-        if matches!(e.key, Key::Tab) && s.view.mode != "search" {
+        // Home's own Tab moves to the sections line. Its footer says so, and the corner player must not take the key.
+        if matches!(e.key, Key::Tab) && !matches!(s.view.mode.as_str(), "search" | "home") {
             playing.stage = Stage::Full;
             s.chrome_until = s.now + CHROME_SECONDS;
             return true;
@@ -550,6 +551,44 @@ mod click {
         let mut rt = runtime(state);
         click_at(&mut rt, "row-2");
         assert!(rt.state.sent_keys.is_empty(), "a prompt lets the click through: {:?}", rt.state.sent_keys);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn corner_player(state: &mut State) {
+        state.playing = Some(Playing {
+            stream: video::Stream { surface: rune::NativeSurface::new() },
+            title: "Live".into(), command: vec![], phase: video::Phase::Playing, stage: Stage::Mini,
+            paused: false, muted: false, reported: false,
+        });
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn press_tab(state: State) -> State {
+        let mut rt = runtime(state);
+        rt.on_key = Some(on_key);
+        rt.key(KeyEvent { key: Key::Tab, mods: Mods::default() });
+        rt.frame(0.0);
+        rt.state
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn tab_on_home_reaches_the_sections_line_while_the_corner_player_is_up() {
+        let mut state = screen("home", &results(2), 0);
+        corner_player(&mut state);
+        let state = press_tab(state);
+        assert_eq!(state.sent_keys, ["tab"], "Tab opened the corner player instead of the sections line");
+        assert!(matches!(state.playing.as_ref().map(|p| p.stage), Some(Stage::Mini)));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn tab_beside_a_game_list_still_opens_the_corner_player() {
+        let mut state = screen("games", &results(2), 0);
+        corner_player(&mut state);
+        let state = press_tab(state);
+        assert!(state.sent_keys.is_empty(), "Tab left the corner player: {:?}", state.sent_keys);
+        assert!(matches!(state.playing.as_ref().map(|p| p.stage), Some(Stage::Full)));
     }
 
     #[cfg(not(target_os = "macos"))]

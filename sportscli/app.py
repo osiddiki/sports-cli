@@ -353,27 +353,48 @@ def get_games(day=None, league='nba'):
         return games_from_espn(request(f'{ESPN}/{path}/scoreboard?dates={date:%Y%m%d}&limit=300'), league=league)
     if day != default_day(): return scoreboard(day)
     # Late West Coast games run past midnight Eastern while ESPN keeps them on the previous day.
-    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    try:
-        yesterday = pool.submit(scoreboard, day - dt.timedelta(days=1))
-        games = scoreboard(day)
-        try: earlier = [game for game in yesterday.result() if game.state == 'live']
-        except (OSError, ValueError): return games
-    finally:
-        pool.shutdown(wait=False)
+    # The extra day is a daemon thread, so quitting during it does not wait for ESPN.
+    box = {}
+    def load_earlier():
+        try: box['games'] = scoreboard(day - dt.timedelta(days=1))
+        except Exception as exc: box['error'] = exc
+    earlier = threading.Thread(target=load_earlier, name='scoreboard-earlier', daemon=True)
+    earlier.start()
+    games = scoreboard(day)
+    earlier.join()
+    error = box.get('error')
+    if isinstance(error, (OSError, ValueError)): return games
+    if error is not None: raise error
+    carried = [game for game in box.get('games', ()) if game.state == 'live']
     ids = {game.id for game in games}
-    return sorted([game for game in earlier if game.id not in ids] + games, key=lambda game: game.start)
+    return sorted([game for game in carried if game.id not in ids] + games, key=lambda game: game.start)
 
 
-def tonight_games():
-    """Today's live and upcoming games in every Home league, live first, and the leagues that failed to load."""
+def tonight_games(stop=None):
+    """Today's live and upcoming games in every Home league, live first, and the leagues that failed to load.
+
+    Once stop is set, games still loading are abandoned and this returns at once, so quit does not wait for ESPN.
+    """
+    found, guard = {}, threading.Lock()
     def fetch(league):
-        try: return get_games(None, league)
-        except Exception: return None
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-        found = list(pool.map(fetch, HOME_LEAGUES))
-    games = sorted((game for games in found if games for game in games), key=lambda game: (game.state != 'live', game.start))
-    return games, [league for league, games in zip(HOME_LEAGUES, found) if games is None]
+        if stop is not None and stop.is_set(): return
+        try: games = get_games(None, league)
+        except Exception: games = None
+        with guard: found[league] = games
+    threads = []
+    for league in HOME_LEAGUES:
+        if stop is not None and stop.is_set(): return [], []
+        thread = threading.Thread(target=fetch, args=(league,), name=f'tonight-{league}', daemon=True)
+        threads.append(thread)
+        thread.start()
+    for thread in threads:
+        while thread.is_alive():
+            thread.join(0.05)
+            if stop is not None and stop.is_set(): return [], []
+    ordered = [found.get(league) for league in HOME_LEAGUES]
+    games = sorted((game for league_games in ordered if league_games for game in league_games),
+                   key=lambda game: (game.state != 'live', game.start))
+    return games, [league for league, league_games in zip(HOME_LEAGUES, ordered) if league_games is None]
 
 
 @dataclass(frozen=True)
@@ -863,7 +884,9 @@ class App:
         self.gi = self.fi = self.ri = 0
         self.mode = 'home'
         self.home_index = 0
+        self.home_scroll = 0
         self.tonight, self.tonight_loading, self.tonight_generation, self.tonight_queue = [], False, 0, queue.Queue()
+        self.tonight_stop = threading.Event()
         self.home_touched = False
         self.section = 'sports'           # which section the sport list serves: sports or replays
         self.settings_index = 0; self.settings_return = 'home'
@@ -1152,8 +1175,11 @@ class App:
             listed = [line for line in lines if line[1] != 'section']
             nav_y = h-4-len(self.action_lines(actions))
             capacity = max(1, nav_y-4)
-            cursor = next((i for i, (index, _, _) in enumerate(listed) if index == self.home_index), 0)
-            start = max(0, cursor-capacity+1)
+            # A section is not one of these lines. Keep the scroll the games were at, or the highlight jumps to the top.
+            cursor = next((i for i, (index, _, _) in enumerate(listed) if index == self.home_index), None)
+            if cursor is None: start = self.home_scroll
+            else: start = self.home_scroll = max(0, cursor-capacity+1)
+            start = min(start, max(0, len(listed)-capacity))
             title_width = max(12, min(40, w-34))
             for y, (index, kind, value) in enumerate(listed[start:start+capacity], 3):
                 if kind == 'heading': self.put(y, 2, value, curses.A_DIM); continue
@@ -1411,8 +1437,8 @@ class App:
     def refresh_tonight(self):
         """Load Home's games in the background; poll_tonight applies the newest answer."""
         self.tonight_generation += 1; self.tonight_loading = True
-        generation, results = self.tonight_generation, self.tonight_queue
-        threading.Thread(target=lambda: results.put((generation, *tonight_games())), name='tonight', daemon=True).start()
+        generation, results, stop = self.tonight_generation, self.tonight_queue, self.tonight_stop
+        threading.Thread(target=lambda: results.put((generation, *tonight_games(stop))), name='tonight', daemon=True).start()
 
     def poll_tonight(self):
         try: generation, games, failed = self.tonight_queue.get_nowait()
@@ -1423,8 +1449,9 @@ class App:
         if not self.home_touched: self.home_index = 0
         elif chosen in HOME_ITEMS: self.home_index = len(games) + HOME_ITEMS.index(chosen)
         else: self.home_index = next((i for i, game in enumerate(games) if (game.league, game.id) == (chosen.league, chosen.id)), 0)
-        if failed and self.mode == 'home':
-            self.message = f'Could not load {", ".join(MARKS[league] for league in failed)}. Press r to retry.'
+        if self.mode == 'home':
+            self.message = (f'Could not load {", ".join(MARKS[league] for league in failed)}. Press r to retry.' if failed
+                            else self.ARRIVAL['home'])
 
     def apply_search(self):
         query = self.search.lower()
@@ -2521,6 +2548,7 @@ class App:
 
     def close(self):
         self.closed.set()
+        self.tonight_stop.set()
         self.stop_schedule_workers()
         if self.player_worker_started:
             while True:

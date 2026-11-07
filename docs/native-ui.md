@@ -42,7 +42,7 @@ The screens take the terminal app's keys unchanged; the footer lists them for ea
 | | Esc or Tab | shrink to the corner and keep browsing |
 | | o | open in mpv instead |
 | | Backspace or ⌘. | stop |
-| Browsing with a corner player | Tab | full size |
+| Browsing with a corner player | Tab | full size, except on Home, where Tab moves to the sections line |
 | | ⌘. | stop |
 | Prompt | Enter / Esc | answer / cancel (an empty answer clears) |
 | Stream link | ⌘C | copy |
