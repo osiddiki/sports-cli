@@ -1,0 +1,6 @@
+# Needs network. The NBA replay archive, one replay's servers and back.
+start ^ Home
+key 2 => ^ Replays: choose a sport
+key 1 => replays found
+key Enter => ^ Sources
+key Esc => ^ Replays(?!:)

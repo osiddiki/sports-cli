@@ -1,0 +1,5 @@
+# Needs network. The channel list, one channel's sources and back.
+args --tv
+start CNN  \(\d+ sources?\)
+key Enter => choices found
+key Esc => > CNN  \(\d+ sources?\)
