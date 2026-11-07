@@ -7,7 +7,9 @@ taken. Keep the two in step: change the chart in the same commit as the code.
 
 Every screen except search (where keys type) also takes the global keys:
 / search, , settings, ? help, q quit. On every list, 1 to 9 open that row, as
-moving to it and pressing Enter would.
+moving to it and pressing Enter would; no screen draws the numbers.
+Home lists tonight's games, then Replays, Live TV, Search and Settings: Enter
+on a game opens its sources, and s opens the sport list for one schedule.
 They are listed once in GLOBAL rather than on every screen. Pressed on their
 own screen, ? and , close it.
 
@@ -27,7 +29,7 @@ GLOBAL = {'/': {'search'}, ',': {'settings'}, '?': {'help'}, 'q': {EXIT}}
 
 # screen -> {key: allowed targets}. Keys missing from a screen leave it unchanged.
 CHART = {
-    'home': {'Enter': {'leagues', 'channels', 'search', 'settings'}, 'Esc': {HOME}},
+    'home': {'Enter': {'feeds', 'leagues', 'channels', 'search', 'settings'}, 'Esc': {HOME}, 's': {'leagues'}},
     'leagues': {'Enter': {'<section>'}, 'Esc': {'<back>', HOME}},
     'games': {'Enter': {'feeds'}, 'Esc': {'leagues'}, 's': {'leagues'}},
     'replays': {'Enter': {'feeds'}, 'Esc': {'leagues'}, 's': {'leagues'}},

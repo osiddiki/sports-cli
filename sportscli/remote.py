@@ -16,7 +16,7 @@ from . import app, breaks
 CODES = {'up': curses.KEY_UP, 'down': curses.KEY_DOWN, 'left': curses.KEY_LEFT, 'right': curses.KEY_RIGHT,
          'enter': 10, 'escape': 27, 'backspace': 127, 'tab': 9, 'ctrl-n': 14, 'ctrl-p': 16, 'ctrl-q': 17,
          'ctrl-r': 18, 'ctrl-u': 21, 'ctrl-x': 24}
-GLOBAL_KEYS = '1-9 open row   / search   , settings   ? help   q quit'
+GLOBAL_KEYS = '/ search   , settings   ? help   q quit'
 STATUS = {'live': 'LIVE', 'upcoming': 'UPCOMING', 'redzone-live': 'LIVE', 'redzone': 'CHANNEL'}
 
 
@@ -78,25 +78,27 @@ class Headless(app.App):
         self.message = 'Stream link shown.'
 
     def poll(self):
-        self.poll_games(); self.poll_global_search(); self.poll_player_search(); self.start_global_search()
+        self.poll_games(); self.poll_tonight(); self.poll_global_search(); self.poll_player_search(); self.start_global_search()
         self.start_player_search(); self.poll_search_preview(); self.poll_replays(); self.poll_channels()
         self.poll_feeds(); self.poll_auto_checks(); self.poll_manual_checks(); self.cancel_feed_action_if_changed()
         self.poll_feed_actions(); self.poll_gui_players()
 
 
-def row(text, *, detail='', style='', pick=True, cells=None, cursor=None):
-    out = {'text': text, 'cells': cells or [text], 'detail': detail, 'style': style, 'pick': pick}
+def row(text, *, detail='', style='', pick=True, cells=None, cursor=None, league=''):
+    out = {'text': text, 'cells': cells or [text], 'detail': detail, 'style': style, 'pick': pick, 'league': league}
     if cursor is not None: out['cursor'] = cursor
     return out
 
 
 def view(a):
     """What the screen shows: the same rows, selection and actions as App.render, without the drawing."""
-    heading = {'home': 'Home', 'settings': 'Settings', 'search': 'Search', 'games': 'Games', 'replays': 'Replays',
+    heading = {'home': 'Tonight', 'settings': 'Settings', 'search': 'Search', 'games': 'Games', 'replays': 'Replays',
                'replay_sources': 'Replay sites', 'channels': 'Live TV', 'feeds': 'Sources', 'help': 'Help',
                'leagues': 'Live sports: choose a sport' if a.section == 'sports' else 'Replays: choose a sport'}
     tv = a.mode == 'channels' or a.mode == 'feeds' and a.feed_context == 'tv'
-    out = {'mode': a.mode, 'accent': 'tv' if tv else a.league, 'title': heading.get(a.mode, ''), 'busy': a.busy(), 'message': a.message, 'info': [],
+    accent = 'tv' if tv else a.league
+    out = {'mode': a.mode, 'accent': accent, 'title': heading.get(a.mode, ''), 'busy': a.busy(), 'message': a.message, 'info': [],
+           'mark': app.MARKS.get(accent, '') if a.mode in ('games', 'replays', 'replay_sources', 'channels', 'feeds') else '',
            'columns': None, 'rows': [], 'selected': -1, 'empty': '', 'actions': '', 'global': GLOBAL_KEYS, 'query': None}
     rows, selected = out['rows'], None
     if a.mode == 'search':
@@ -115,8 +117,16 @@ def view(a):
         rows.extend(row(line, pick=False) for line in app.HELP_LINES[a.help_scroll:])
         out['actions'] = 'j/k scroll   Esc back'
     elif a.mode == 'home':
-        for _, key, label, detail in app.HOME_ITEMS: rows.append(row(label, cells=[key, label, detail], style='home'))
-        selected = a.home_index; out['actions'] = 'Enter open'
+        for index, kind, value in a.home_lines():
+            if index == a.home_index: selected = len(rows)
+            if kind == 'heading': rows.append(row(value, style='heading', pick=False))
+            elif kind == 'section': rows.append(row(value, style='section', cursor=index))
+            else:
+                game = a.tonight[index]
+                rows.append(row(value.title, cells=[value.mark, value.when, value.title], detail=value.channels,
+                                style='live' if value.live else '', cursor=index, league=game.league))
+        out['empty'] = "Loading tonight's games" if a.tonight_loading else 'No games tonight. Press s to choose a sport.'
+        out['actions'] = a.home_actions()
     elif a.mode == 'settings':
         for label, value, _ in a.settings_rows(): rows.append(row(label, cells=[label, value]))
         selected = a.settings_index; out['actions'] = 'Enter change   Esc back'
@@ -213,6 +223,7 @@ class Remote:
     """One headless app behind a lock; a background thread runs the polling the curses loop does between keys."""
     def __init__(self, config):
         self.app, self.lock, self.closed, self.seq = Headless(config), threading.Lock(), threading.Event(), 0
+        self.app.refresh_tonight()
         threading.Thread(target=self.loop, daemon=True).start()
 
     def loop(self):

@@ -1,22 +1,23 @@
 # Screens
 
-The app opens on Home: live sports, replays, live TV, search and settings. Keys mean the
-same thing on every screen:
+The app opens on Home: tonight's games across leagues, live ones first, with Replays, Live TV,
+Search and Settings on one line at the bottom. Keys mean the same thing on every screen:
 
 | Key | Does |
 |---|---|
-| `1` to `9` | Open that row of the list (a sport, a game, a channel, a source) |
+| `1` to `9` | Open that row of the list (a game, a sport, a channel, a source); the numbers are not drawn |
 | `/` | Search teams, players, games and channels |
 | `,` | Settings |
 | Enter, → or `l` | Open or play |
 | Esc, ←, `h` or Backspace | Back up one level |
-| `s` | Change sport (schedules, replays and their sources) |
+| `s` | Change sport (schedules, replays and their sources); on Home, open one sport's schedule |
+| Tab | On Home, move between the games and the sections line |
 | `f` | Filter the current list |
 | `r` | Refresh the current list |
 | `?` · `q` | Help · quit |
 | `a` | Home or away feed (live game sources) |
 
-Pressing `?` or `,` on its own screen closes it. Esc leads back to Home, where `1`, `2` and `3` open live sports, replays and live TV.
+Pressing `?` or `,` on its own screen closes it. Esc leads back to Home, where Enter on a game opens its sources.
 Any other key that does nothing on a screen says so on the status line.
 
 The OpenTUI front end (`opentui/`) and the native window (`native/`) drive a headless copy of this same app (`sportscli/remote.py`), so it follows the chart without a second implementation.
@@ -28,7 +29,7 @@ and checks that:
 - every move between screens is one the chart allows, and every chart move happens;
 - Esc, repeated, always leads back to Home;
 - help and search return to the screen they were opened from;
-- `/`, `1`, `2`, `3` and `,` lead to the same place from every screen, and `s` only ever changes sport;
+- `/` and `,` lead to the same place from every screen, `2` opens the second row of every list, and `s` only ever changes sport;
 - `q` (Ctrl-X in search) quits from every screen;
 - every key shown in a screen's footer does something there, in every league.
 
@@ -39,10 +40,12 @@ leaves out the global keys except from Home, since every screen has them.
 stateDiagram-v2
     [*] --> home
     home --> channels: Enter
+    home --> feeds: Enter
     home --> leagues: Enter
     home --> search: Enter
     home --> settings: Enter
     home --> home: Esc
+    home --> leagues: s
     home --> search: /
     home --> settings: ,
     home --> help: ?

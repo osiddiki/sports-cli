@@ -6,13 +6,14 @@ from sportscli import app as nba, remote
 from tests.test_screens import CHANNELS, GAMES, Screen, feeds, make_app, press
 
 REAL_HEADLESS = remote.Headless
-FRONT_END_KEYS = {'Enter': 'enter', 'Esc': 'escape', 'Down': 'down', 'Up': 'up', 'Left': 'left', 'Right': 'right'}
+FRONT_END_KEYS = {'Enter': 'enter', 'Esc': 'escape', 'Down': 'down', 'Up': 'up', 'Left': 'left', 'Right': 'right', 'Tab': 'tab'}
+SECTIONS = ['Replays', 'Live TV', 'Search', 'Settings']
 JOURNEYS = [
-    ['1', 'Enter', 'Enter', 'Esc', 'Esc', 'Esc', 'Esc'],
-    ['3', 'f', 'Enter', 'Down', 'Up', 'Esc', 'Esc'],
-    ['2', 'Enter', 's', 'Esc', 'Esc', 'Esc', 'Esc'],
+    ['s', 'Enter', 'Enter', 'Esc', 'Esc', 'Esc', 'Esc'],
+    ['Tab', 'Down', 'Enter', 'f', 'Enter', 'Down', 'Up', 'Esc', 'Esc'],
+    ['3', 'Enter', 's', 'Esc', 'Esc', 'Esc', 'Esc'],
     ['/', 'l', 'a', 'Esc', ',', 'Down', ',', '?', 'j', 'Esc', 'Left'],
-    ['1', 'Enter', 'Enter', 'a', 'o', 'g', 'v', 'x', 'i', 'r', 's', 'Esc', 'Esc', 'q'],
+    ['Enter', 'Enter', 'a', 'o', 'g', 'v', 'x', 'i', 'r', 's', 'Esc', 'Esc', 'Esc', 'q'],
 ]
 
 
@@ -46,14 +47,28 @@ class RemoteTests(unittest.TestCase):
                     self.assertIn({'type': 'quit'}, answer['events'])
                     break
 
-    def test_home_lists_the_sections_with_their_keys(self):
+    def test_home_is_tonights_games_then_the_sections(self):
         view = self.remote.view()
-        self.assertEqual((view['mode'], view['selected']), ('home', 0))
-        self.assertEqual([row['cells'][:2] for row in view['rows']],
-                         [[key, label] for _, key, label, _ in nba.HOME_ITEMS])
+        self.assertEqual((view['mode'], view['title']), ('home', 'Tonight'))
+        self.assertEqual([row['text'] for row in view['rows'] if row['pick']], [game.title for game in GAMES] + SECTIONS)
+        self.assertEqual([row['text'] for row in view['rows'] if not row['pick']], ['LIVE', 'LATER TONIGHT'])
+        self.assertEqual(view['rows'][view['selected']]['text'], GAMES[0].title)
+        live, later = (row for row in view['rows'] if row['league'])
+        self.assertEqual((live['cells'][0], live['style'], later['cells'][0], later['style']), ('NBA', 'live', 'NBA', ''))
+        self.assertNotIn('1-9', view['global'])
+        self.assertEqual(self.remote.key('enter')['mode'], 'feeds')
+
+    def test_terminal_home_draws_league_marks_where_the_numbers_were(self):
+        app = make_app(); app.render()
+        lines = [app.scr.text[y] for y in sorted(app.scr.text)]
+        games = [line for line in lines if any(game.title in line for game in GAMES)]
+        self.assertEqual([line.split()[:2] for line in games], [['>', 'NBA'], ['NBA', GAMES[1].title.split()[0]]])
+        self.assertIn('●', games[0])
+        self.assertTrue(any(all(label in line for label in SECTIONS) for line in lines), lines)
+        self.assertFalse(any(line.lstrip('> ')[:1].isdigit() for line in lines), lines)
 
     def test_schedule_and_sources_describe_what_the_terminal_draws(self):
-        self.remote.key('1'); view = self.remote.key('enter')
+        self.remote.key('s'); view = self.remote.key('enter')
         self.assertEqual([row['text'] for row in view['rows']], [game.title for game in GAMES])
         self.assertEqual(view['rows'][0]['style'], 'live')
         view = self.remote.key('enter')
@@ -62,7 +77,7 @@ class RemoteTests(unittest.TestCase):
         self.assertIn('Enter play', view['actions'])
 
     def test_keys_that_ask_a_question_become_a_prompt_the_front_end_answers(self):
-        view = self.remote.key('3')
+        view = self.remote.key('4')
         self.assertEqual(len(view['rows']), len(CHANNELS))
         asked = self.remote.key('f')['events']
         self.assertEqual([(event['type'], event['key']) for event in asked], [('prompt', 'f')])

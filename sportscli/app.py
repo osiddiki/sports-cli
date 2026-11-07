@@ -57,14 +57,14 @@ SF_ROOT = 'https://streamfree.top'
 NTV = 'https://ntv.st'
 RESOLVER = 'http://127.0.0.1:38765'
 CONFIG = pathlib.Path(os.environ.get('XDG_CONFIG_HOME', pathlib.Path.home() / '.config')) / 'nba-tui' / 'config.json'
-HOME_ITEMS = [('sports', '1', 'Live sports', "Today's games and their streams"),
-              ('replays', '2', 'Replays', 'Full games from recent days'),
-              ('tv', '3', 'Live TV', 'CNN, CNBC, MS NOW, Fox News and more'),
-              ('search', '4', 'Search', 'Teams, players, games and channels'),
-              ('settings', '5', 'Settings', 'Player, backup streams, ad breaks')]
+# The short code a row or a title shows for its league, where lists used to show a row number.
+MARKS = {'nba': 'NBA', 'nfl': 'NFL', 'nhl': 'NHL', 'mlb': 'MLB', 'epl': 'EPL', 'mls': 'MLS', 'tv': 'TV'}
+HOME_LEAGUES = tuple(key for key in MARKS if key in LEAGUES)  # every Home row carries its mark
+HOME_ITEMS = [('replays', 'Replays'), ('tv', 'Live TV'), ('search', 'Search'), ('settings', 'Settings')]
 
 HELP_LINES = [
     'EVERYWHERE     1-9 open that row   / search   , settings   ? help   q quit',
+    'HOME           Enter: watch the selected game    Tab: the sections line    s: one sport\'s schedule    r: refresh',
     'MOVE           Up/Down or j/k: select    Enter, Right or l: open    Esc, Left, h or Backspace: back',
     'LISTS          f: filter this list    r: refresh    s: change sport (games and replays)',
     'SCHEDULE       [ and ]: previous or next day',
@@ -361,6 +361,32 @@ def get_games(day=None, league='nba'):
         pool.shutdown(wait=False)
     ids = {game.id for game in games}
     return sorted([game for game in earlier if game.id not in ids] + games, key=lambda game: game.start)
+
+
+def tonight_games():
+    """Today's live and upcoming games in every Home league, live first, and the leagues that failed to load."""
+    def fetch(league):
+        try: return get_games(None, league)
+        except Exception: return None
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        found = list(pool.map(fetch, HOME_LEAGUES))
+    games = sorted((game for games in found if games for game in games), key=lambda game: (game.state != 'live', game.start))
+    return games, [league for league, games in zip(HOME_LEAGUES, found) if games is None]
+
+
+@dataclass(frozen=True)
+class GameLine:
+    """A game as Home draws it, in the terminal and in the window."""
+    mark: str
+    live: bool
+    when: str
+    title: str
+    channels: str
+
+    @classmethod
+    def of(cls, game):
+        return cls(MARKS[game.league], game.state == 'live', game.start.astimezone().strftime('%I:%M %p').lstrip('0'),
+                   game.title, ', '.join(game.broadcasts))
 
 
 def get_team_games(team_id, league, today=None):
@@ -835,6 +861,8 @@ class App:
         self.gi = self.fi = self.ri = 0
         self.mode = 'home'
         self.home_index = 0
+        self.tonight, self.tonight_loading, self.tonight_generation, self.tonight_queue = [], False, 0, queue.Queue()
+        self.home_touched = False
         self.section = 'sports'           # which section the sport list serves: sports or replays
         self.settings_index = 0; self.settings_return = 'home'
         self.feed_context = 'live'
@@ -849,6 +877,7 @@ class App:
         self.help_scroll = 0
         self.live_color = 0
         self.accent_color = curses.A_BOLD
+        self.on_air = curses.A_BOLD
         self.loading_games = False
         self.schedule_generation = 0
         self.schedule_jobs = queue.Queue(maxsize=1)
@@ -1063,12 +1092,11 @@ class App:
         h, w = self.scr.getmaxyx()
         lines = self.action_lines(actions)
         for y, line in enumerate(lines, h-3-len(lines)): self.put(y, 1, line)
-        self.put(h-3, 1, '1-9 open row   / search   , settings   ? help   q quit' if w >= 72
-                 else '1 2 3 sections   / search   , settings   q quit')
+        self.put(h-3, 1, '/ search   , settings   ? help   q quit' if w >= 48 else '/ search   , settings   q quit')
 
     def busy(self):
         """Whether background work the user is waiting on is still running."""
-        return bool(self.loading_games or self.channels_loading or self.replay_pending or self.feed_pending
+        return bool(self.loading_games or self.tonight_loading or self.channels_loading or self.replay_pending or self.feed_pending
                     or self.action_inflight or self.search_inflight & self.search_needed)
 
     @staticmethod
@@ -1080,7 +1108,7 @@ class App:
         self.scr.erase()
         h, w = self.scr.getmaxyx()
         self.put(0, 1, 'SPORTS CLI', self.accent_color)
-        heading = {'home':'Home', 'settings':'Settings', 'search':'Search', 'leagues':'Live sports: choose a sport' if self.section == 'sports' else 'Replays: choose a sport', 'games':'Games', 'replays':'Replays', 'replay_sources':'Replay sites', 'channels':'Live TV', 'feeds':'Sources', 'help':'Help'}
+        heading = {'home':'Tonight', 'settings':'Settings', 'search':'Search', 'leagues':'Live sports: choose a sport' if self.section == 'sports' else 'Replays: choose a sport', 'games':'Games', 'replays':'Replays', 'replay_sources':'Replay sites', 'channels':'Live TV', 'feeds':'Sources', 'help':'Help'}
         title = heading.get(self.mode, '')
         self.put(1, 1, title, curses.A_BOLD)
         if self.busy(): self.put(1, len(title) + 2, self.spinner(), self.accent_color)
@@ -1116,11 +1144,30 @@ class App:
                 self.put(y, 2, line)
             self.put(h-3, 1, 'j/k scroll   Esc back   q quit')
         elif self.mode == 'home':
-            for y, (_, key, label, detail) in enumerate(HOME_ITEMS, 3):
-                selected = y-3 == self.home_index
-                line = f'{">" if selected else " "} {key}  {label:<12}  {detail}'
-                self.put(y, 2, line, curses.A_REVERSE if selected else 0)
-            self.footer('Enter open')
+            actions = self.home_actions()
+            lines = self.home_lines()
+            listed = [line for line in lines if line[1] != 'section']
+            nav_y = h-4-len(self.action_lines(actions))
+            capacity = max(1, nav_y-4)
+            cursor = next((i for i, (index, _, _) in enumerate(listed) if index == self.home_index), 0)
+            start = max(0, cursor-capacity+1)
+            title_width = max(12, min(40, w-34))
+            for y, (index, kind, value) in enumerate(listed[start:start+capacity], 3):
+                if kind == 'heading': self.put(y, 2, value, curses.A_DIM); continue
+                selected = index == self.home_index
+                attr = curses.A_REVERSE if selected else curses.A_BOLD if value.live else 0
+                self.put(y, 2, f'{">" if selected else " "} {value.mark:<4}   {value.title:<{title_width}.{title_width}}  '
+                               f'{"LIVE" if value.live else value.when:>8}', attr)
+                if value.live: self.put(y, 9, '●', self.on_air | (curses.A_REVERSE if selected else 0))
+                self.put(y, title_width+23, value.channels, attr if selected else curses.A_DIM)
+            if not listed:
+                self.put(4, 2, self.spinner() + " Loading tonight's games" if self.tonight_loading else
+                         'No games tonight. Press s to choose a sport.')
+            x = 2
+            for index, kind, label in lines:
+                if kind == 'section':
+                    self.put(nav_y, x, f' {label} ', curses.A_REVERSE if index == self.home_index else 0); x += len(label) + 4
+            self.footer(actions)
         elif self.mode == 'settings':
             for y, (label, value, _) in enumerate(self.settings_rows(), 3):
                 selected = y-3 == self.settings_index
@@ -1332,6 +1379,42 @@ class App:
         if self.schedule_selected_id:
             self.gi = next((i for i, game in enumerate(self.games) if game.id == self.schedule_selected_id), 0)
         self.message = f'{len(self.games)} games shown. Select one.'
+
+    def home_rows(self):
+        """What Home's selection moves over: tonight's games, then the sections."""
+        return [*self.tonight, *HOME_ITEMS]
+
+    def home_lines(self):
+        """Home top to bottom as (cursor, kind, value): a 'heading' (no cursor) before the live and the later
+        games, each 'game' as a GameLine, then each 'section' label, which share one line at the bottom."""
+        lines, heading = [], None
+        for index, game in enumerate(self.tonight):
+            line = GameLine.of(game)
+            group = 'LIVE' if line.live else 'LATER TONIGHT'
+            if group != heading: heading = group; lines.append((None, 'heading', heading))
+            lines.append((index, 'game', line))
+        return lines + [(len(self.tonight) + index, 'section', label) for index, (_, label) in enumerate(HOME_ITEMS)]
+
+    def home_actions(self):
+        return ('Enter watch' if self.home_index < len(self.tonight) else 'Enter open') + '   Tab sections   s sport   r refresh'
+
+    def refresh_tonight(self):
+        """Load Home's games in the background; poll_tonight applies the newest answer."""
+        self.tonight_generation += 1; self.tonight_loading = True
+        generation, results = self.tonight_generation, self.tonight_queue
+        threading.Thread(target=lambda: results.put((generation, *tonight_games())), name='tonight', daemon=True).start()
+
+    def poll_tonight(self):
+        try: generation, games, failed = self.tonight_queue.get_nowait()
+        except queue.Empty: return
+        if generation != self.tonight_generation: return
+        chosen = self.home_rows()[self.home_index]
+        self.tonight, self.tonight_loading = games, False
+        if not self.home_touched: self.home_index = 0
+        elif chosen in HOME_ITEMS: self.home_index = len(games) + HOME_ITEMS.index(chosen)
+        else: self.home_index = next((i for i, game in enumerate(games) if (game.league, game.id) == (chosen.league, chosen.id)), 0)
+        if failed and self.mode == 'home':
+            self.message = f'Could not load {", ".join(MARKS[league] for league in failed)}. Press r to retry.'
 
     def apply_search(self):
         query = self.search.lower()
@@ -2480,14 +2563,16 @@ class App:
             self.help_return = self.mode; self.help_scroll = 0; self.mode = 'help'; self.message = 'Controls and setup.'
         elif key == ord('/'): self.open_search()
         elif key == ord(','): self.open_settings()
+        elif key == ord('s') and self.mode == 'home': self.open_section('sports')
+        elif key == 9 and self.mode == 'home': self.select(0 if self.home_index >= len(self.tonight) else len(self.tonight))
         elif key == ord('s') and (self.mode in ('games', 'replays') or self.mode == 'feeds' and self.feed_context != 'tv'): self.pick_sport()
         elif key in (curses.KEY_UP, ord('k')): self.move(-1)
         elif key in (curses.KEY_DOWN, ord('j')): self.move(1)
         elif key in self.OPEN_KEYS: self.open_selected()
         elif ord('1') <= key <= ord('9'): self.open_row(key - ord('1'), typed)
         elif key in self.BACK_KEYS: self.go_back()
-        elif key == ord('r') and self.mode in ('games', 'replays', 'channels', 'feeds'):
-            {'games': self.refresh_games, 'replays': self.refresh_replays,
+        elif key == ord('r') and self.mode in ('home', 'games', 'replays', 'channels', 'feeds'):
+            {'home': self.refresh_tonight, 'games': self.refresh_games, 'replays': self.refresh_replays,
              'channels': self.refresh_channels, 'feeds': lambda: self.refresh_feeds(recheck=True)}[self.mode]()
         elif key == ord('f') and self.mode in ('games', 'replays', 'channels', 'feeds'): self.filter_list()
         elif self.mode == 'games' and key in (ord('['), ord(']')):
@@ -2551,7 +2636,7 @@ class App:
 
     def cursor(self):
         """The current list's selection field and its length."""
-        size = {'home': len(HOME_ITEMS), 'leagues': len(LEAGUES), 'games': len(self.games), 'replays': len(self.replays),
+        size = {'home': len(self.home_rows()), 'leagues': len(LEAGUES), 'games': len(self.games), 'replays': len(self.replays),
                 'channels': len(self.visible_channels()), 'settings': len(self.settings_rows()),
                 'replay_sources': len(self.current_bundle.sources) if self.current_bundle else 0,
                 'feeds': len(self.visible_feeds())}.get(self.mode, 0)
@@ -2563,6 +2648,7 @@ class App:
         field, size = self.cursor()
         if not field: return
         setattr(self, field, min(max(0, size-1), max(0, row)))
+        if self.mode == 'home': self.home_touched = True
         if self.mode == 'replays': self.replay_selection_touched = True
         if self.mode == 'feeds': self.feed_selection_touched = True
 
@@ -2578,7 +2664,11 @@ class App:
 
     def open_selected(self):
         if self.mode == 'home':
-            action = HOME_ITEMS[self.home_index][0]
+            item = self.home_rows()[self.home_index]
+            if isinstance(item, Game):
+                self.games = [item]; self.all_games = [item]; self.gi = 0; self.league = item.league
+                self.open_feeds('live', 'home'); return
+            action = item[0]
             if action == 'search': self.open_search()
             elif action == 'settings': self.open_settings()
             else: self.open_section(action)
@@ -2730,6 +2820,8 @@ class App:
                 self.live_color = curses.color_pair(1) | curses.A_BOLD
                 curses.init_pair(2, 105 if curses.COLORS >= 256 else curses.COLOR_MAGENTA, -1)
                 self.accent_color = curses.color_pair(2) | curses.A_BOLD
+                curses.init_pair(3, curses.COLOR_RED, -1)
+                self.on_air = curses.color_pair(3) | curses.A_BOLD
         except curses.error: pass
         self.scr.keypad(True)
         # Avoid terminal-specific insert/delete optimizations that can leave
@@ -2738,9 +2830,10 @@ class App:
         if hasattr(self.scr, 'idcok'): self.scr.idcok(False)
         self.scr.timeout(150)
         if self.mode == 'games': self.refresh_games()
+        self.refresh_tonight()
         try:
             while True:
-                self.poll_games(); self.poll_global_search(); self.poll_player_search(); self.start_global_search(); self.start_player_search(); self.poll_search_preview()
+                self.poll_games(); self.poll_tonight(); self.poll_global_search(); self.poll_player_search(); self.start_global_search(); self.start_player_search(); self.poll_search_preview()
                 self.poll_replays(); self.poll_channels(); self.poll_feeds(); self.poll_auto_checks(); self.poll_manual_checks(); self.cancel_feed_action_if_changed(); self.poll_feed_actions(); self.poll_gui_players(); self.render(); key, typed = self.read_key()
                 if key == -1: continue
                 if not self.handle_key(key, typed): break
