@@ -16,6 +16,9 @@ static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new
 const POLL: Duration = Duration::from_millis(150);
 const CHROME_SECONDS: f64 = 2.6;
 
+/// The second click of a double-click lands within this long after the first, and opens nothing.
+const DOUBLE_CLICK: f64 = 0.5;
+
 /// What sits over the screens. One at a time, and keys go to it first.
 pub enum Overlay {
     None,
@@ -50,11 +53,8 @@ pub struct State {
     pub view: View,
     /// Requests sent and not yet answered. A poll goes out only when this is 0.
     inflight: usize,
-    /// Replies already queued when a click's keys were sent, then those keys.
-    replies_before_click: usize,
-    click_keys_left: usize,
-    /// The frame that finishes a click still has the second press queued behind the replies.
-    press_held: bool,
+    /// A press before this time is the second half of a double-click, and opens nothing.
+    press_until: f64,
     pub error: Option<String>,
     pub overlay: Overlay,
     pub playing: Option<Playing>,
@@ -70,7 +70,7 @@ pub struct State {
 fn init() -> State {
     State {
         boot: None, server: None, waker: None, view: View { mode: "boot".into(), ..View::default() }, inflight: 0,
-        replies_before_click: 0, click_keys_left: 0, press_held: false,
+        press_until: 0.0,
         error: None, overlay: Overlay::None, playing: None, now: 0.0, chrome_until: 0.0, phone: None, direction: 1.0,
         #[cfg(test)]
         sent_keys: Vec::new(),
@@ -100,24 +100,16 @@ pub fn depth(mode: &str) -> i32 {
 
 impl State {
     fn press_row(&mut self, index: usize) {
-        if self.click_keys_left > 0 || self.press_held { return }
         if !matches!(self.overlay, Overlay::None) { return }
         if self.playing.as_ref().is_some_and(|p| p.stage == Stage::Full) { return }
+        // A double-click is one choice. The first press opens its screen, so the second would run
+        // the same keys there and open another row or start playback.
+        if self.now < self.press_until { return }
         let keys = keys_for_row(&self.view, index);
         if keys.is_empty() { return }
-        self.replies_before_click = self.inflight;
-        self.click_keys_left = keys.len();
+        self.press_until = self.now + DOUBLE_CLICK;
         for key in keys {
             self.send(Request::Key(key, None));
-        }
-    }
-
-    fn note_reply(&mut self) {
-        if self.replies_before_click > 0 {
-            self.replies_before_click -= 1;
-        } else if self.click_keys_left > 0 {
-            self.click_keys_left -= 1;
-            if self.click_keys_left == 0 { self.press_held = true; }
         }
     }
 
@@ -192,7 +184,6 @@ impl State {
 
 fn poll(s: &mut State, now: f64, tx: &mut Tx) -> bool {
     s.now = now;
-    if s.click_keys_left == 0 { s.press_held = false; }
     let mut changed = false;
     // Headless scripts run on a virtual clock; this makes each frame wait for the app's answer.
     let sync = std::env::var_os("SPORTS_NATIVE_SYNC").is_some();
@@ -226,7 +217,6 @@ fn poll(s: &mut State, now: f64, tx: &mut Tx) -> bool {
     }
     for reply in replies {
         s.inflight = s.inflight.saturating_sub(1);
-        s.note_reply();
         match reply {
             Reply::View(next) => { s.error = None; s.apply(*next, tx) }
             Reply::Error(why) => s.error = Some(why),
@@ -440,12 +430,14 @@ mod click {
         rt.state.sent_keys
     }
 
-    fn click_at(rt: &mut Runtime<State>, key: &str) {
+    /// A press `since` seconds on, in the clock `poll` sets at the start of each frame before the press runs.
+    fn click_at(rt: &mut Runtime<State>, key: &str, since: f64) {
+        rt.state.now += since;
         let (x, y) = rt.find(key).unwrap_or_else(|| panic!("{key} is not on screen"));
         rt.pointer_move(x, y);
         rt.pointer_down(x, y);
         rt.pointer_up(x, y);
-        rt.frame(1.0 / 60.0);
+        rt.frame(since);
     }
 
     fn runtime(state: State) -> Runtime<State> {
@@ -490,12 +482,36 @@ mod click {
     }
 
     #[test]
-    fn a_second_press_during_a_click_does_not_enqueue_another_enter() {
+    fn a_double_click_opens_its_row_once() {
         let mut rt = runtime(screen("home", &results(4), 0));
-        click_at(&mut rt, "row-2");
-        click_at(&mut rt, "row-2");
+        click_at(&mut rt, "row-2", 1.0 / 60.0);
+        // The second press comes a moment later, as a person's does, with the first screen applied.
+        click_at(&mut rt, "row-2", 0.15);
         let enters = rt.state.sent_keys.iter().filter(|key| key.as_str() == "enter").count();
-        assert_eq!(enters, 1, "a second press while the first click is unanswered sends another enter: {:?}", rt.state.sent_keys);
+        assert_eq!(enters, 1, "a double-click queues the open twice: {:?}", rt.state.sent_keys);
+    }
+
+    #[test]
+    fn a_double_click_does_not_open_a_row_on_the_screen_it_reached() {
+        let mut rt = runtime(screen("home", &results(4), 0));
+        click_at(&mut rt, "row-2", 1.0 / 60.0);
+        // The app moved on to the new screen; the same spot there is another row.
+        rt.state.view.mode = "leagues".into();
+        rt.state.view.rows = rows(&results(4));
+        rt.state.view.seq += 1;
+        rt.frame(1.0 / 60.0);
+        click_at(&mut rt, "row-1", 0.15);
+        let enters = rt.state.sent_keys.iter().filter(|key| key.as_str() == "enter").count();
+        assert_eq!(enters, 1, "the second half of a double-click opens the screen it reached: {:?}", rt.state.sent_keys);
+    }
+
+    #[test]
+    fn a_press_after_the_click_interval_opens_its_row_again() {
+        let mut rt = runtime(screen("home", &results(4), 0));
+        click_at(&mut rt, "row-2", 1.0 / 60.0);
+        click_at(&mut rt, "row-2", DOUBLE_CLICK + 0.1);
+        let enters = rt.state.sent_keys.iter().filter(|key| key.as_str() == "enter").count();
+        assert_eq!(enters, 2, "a later press is its own click: {:?}", rt.state.sent_keys);
     }
 
     #[test]
@@ -503,7 +519,7 @@ mod click {
         let mut state = screen("home", &results(4), 0);
         state.overlay = Overlay::Prompt { label: "Filter".into(), key: "f".into(), typed: String::new() };
         let mut rt = runtime(state);
-        click_at(&mut rt, "row-2");
+        click_at(&mut rt, "row-2", 1.0 / 60.0);
         assert!(rt.state.sent_keys.is_empty(), "a prompt lets the click through: {:?}", rt.state.sent_keys);
     }
 
