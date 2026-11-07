@@ -50,15 +50,25 @@ TIMEOUT, SETTLE = 20, 1.5
 try:
     import pyte
 except ImportError:
-    python = VENV / 'bin' / 'python'
-    if not python.exists():
-        subprocess.run([sys.executable, '-m', 'venv', str(VENV)], check=True)
-        subprocess.run([str(python), '-m', 'pip', 'install', '-q', 'pyte==0.8.2'], check=True)
-    os.execv(str(python), [str(python), __file__, *sys.argv[1:]])
+    pyte = None
+    if __name__ == '__main__':
+        python = VENV / 'bin' / 'python'
+        if not python.exists():
+            subprocess.run([sys.executable, '-m', 'venv', str(VENV)], check=True)
+            subprocess.run([str(python), '-m', 'pip', 'install', '-q', 'pyte==0.8.2'], check=True)
+        os.execv(str(python), [str(python), __file__, *sys.argv[1:]])
 
 KEYS = {'Enter': '\r', 'Esc': '\x1b', 'Tab': '\t', 'Space': ' ', 'Backspace': '\x7f', 'Up': 'k', 'Down': 'j',
         'Left': 'h', 'Right': 'l', 'Ctrl-F': '\x06', 'Ctrl-X': '\x18'}
 MOUSE_MODES = {'1000', '1002', '1003', '1006'}
+
+
+def click_report(modes, col, row):
+    """A left press and release at a 1-based cell, as the terminal would send it."""
+    if '1006' in modes:
+        return f'\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m'.encode()
+    # X10 puts each coordinate in one raw byte (32 + n), so it must not go through UTF-8.
+    return b'\x1b[M' + bytes([32, 32 + col, 32 + row]) + b'\x1b[M' + bytes([35, 32 + col, 32 + row])
 
 
 def parse(path):
@@ -101,8 +111,8 @@ class App:
                 self.raw += data
                 self.stream.feed(data)
 
-    def send(self, text):
-        try: os.write(self.fd, text.encode())
+    def send(self, data):
+        try: os.write(self.fd, data if isinstance(data, bytes) else data.encode())
         except OSError: pass
 
     def text(self):
@@ -132,10 +142,7 @@ class App:
         modes = self.mouse()
         if not modes:
             return False, f'row {row} col {col}; app did not turn on mouse reporting, so the terminal sent nothing'
-        if '1006' in modes:
-            self.send(f'\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m')
-        else:
-            self.send('\x1b[M' + chr(32) + chr(32 + col) + chr(32 + row) + '\x1b[M' + chr(35) + chr(32 + col) + chr(32 + row))
+        self.send(click_report(modes, col, row))
         return True, f'row {row} col {col}; sent a left click (mouse modes {",".join(sorted(modes))})'
 
     def view(self):

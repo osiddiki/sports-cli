@@ -61,7 +61,7 @@ Report each failure as the walk, step, expected text, what showed, and the shot 
 
 Clicking is not built. The app never turns on mouse reporting, so a real terminal sends no click. `walk.py` sends a click only when the app has turned on a mouse mode (1000, 1002, 1003 or 1006). Otherwise it sends nothing and records why.
 
-A click that leaves the heading and the selected row unchanged gets `no effect`. The walk continues, and the exit status stays 0. `walks/clicks.walk` gives each click the screen a working click would open. Today every click there reads `no effect`. Record that result and leave the app alone. Once clicking is built, the same walk passes or fails with no edits.
+A click that leaves the heading and the selected row unchanged gets `no effect`. The walk continues, and the exit status stays 0. `walks/clicks.walk` gives each click the screen a working click would open. Today every click there reads `no effect`. Record that result and leave the app alone. Once clicking is built, the same walk passes or fails with no edits. After changing how `walk.py` encodes clicks, run `python3 .claude/skills/walk-sports-cli/scripts/test_walk.py`.
 
 ## Write a walk
 
