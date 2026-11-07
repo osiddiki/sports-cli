@@ -1,14 +1,21 @@
-# Home's numbered rows open each section, Esc comes back to Home, and Home keeps its selection.
-start ^ Home
-key 1 => ^ Live sports: choose a sport
-key Esc => ^ Home
-key 2 => ^ Replays: choose a sport
-key Esc => ^ Home
-key 3 => ^ Live TV
-key Esc => ^ Home
-key 4 => ^ Search
-key Esc => ^ Home
-key 5 => ^ Settings
-key Esc => ^ Home
-key Up => >\s+4\s+Search
+# Home is tonight's games. s opens one sport's schedule, Tab reaches the sections
+# line (Replays, Live TV, Search, Settings), and Esc comes back to Tonight.
+# Works before the games finish loading: with no games yet, the sections line is
+# the whole list and Tab stays on Replays.
+start ^ Tonight
+key s => ^ Live sports: choose a sport
+key Esc => ^ Tonight
+key Tab
+key Enter => ^ Replays: choose a sport
+key Esc => ^ Tonight
+key Down
+key Enter => ^ Live TV
+key Esc => ^ Tonight
+key Down
+key Enter => ^ Search
+key Esc => ^ Tonight
+key Down
+key Enter => ^ Settings
+key Esc => ^ Tonight
+key Up
 key Enter => ^ Search
