@@ -241,17 +241,19 @@ class SearchSideHit:
     def key(self): return ('side', self.item.league, self.item.id, self.side)
 
 
-def replay_identity(index, hit):
-    """Group the same dated matchup across different replay directories."""
-    title = re.split(r'\s+[-–—]\s+', hit.title, maxsplit=1)[0].strip()
-    parts = re.split(r'\s+(?:vs\.?|versus)\s+', title, maxsplit=1, flags=re.I)
-    if hit.date and len(parts) == 2:
-        teams = []
-        for part in parts:
-            matches = [(team, score) for team, score in index.resolve(part) if team.league == hit.league]
-            teams.append(matches[0][0].id if matches and matches[0][1] >= .9 else smart_search.normalize(part))
-        return (hit.league, hit.date.isoformat(), *sorted(teams)), title
-    return (hit.league, hit.item.url), title
+def bundle_replays(hits, league=None):
+    """Group replay hits with the same game key the replay list uses."""
+    by_league = {}
+    for hit in hits:
+        if hit.kind != 'replay': continue
+        if league is not None and hit.league != league: continue
+        by_league.setdefault(hit.league, []).append(hit.item)
+    bundles = []
+    for name, listings in by_league.items():
+        for game in replays.games(listings, name):
+            bundles.append(ReplayBundle(game.league, game.title, game.date, list(game.sources), game.identity))
+    bundles.sort(key=lambda bundle: bundle.date or dt.date.min, reverse=True)
+    return bundles
 
 
 def check_age(seconds):
@@ -1023,7 +1025,8 @@ class App:
                         rows.append((None, 'TV CHANNELS', 'channel-heading'))
                     rows.append((i, f'   {hit.title}', ''))
                 else:
-                    rows.append((i, f'{hit.kind.upper()}  {hit.title}  ·  {LEAGUES[hit.league][0]}', ''))
+                    label = 'REPLAY' if hit.kind in ('replay', 'bundle') else hit.kind.upper()
+                    rows.append((i, f'{label}  {hit.title}  ·  {LEAGUES[hit.league][0]}', ''))
             return rows
         rows = [(0, f'{LEAGUES[hits[0].league][0]}  {hits[0].title}', 'team')]
         live = [(i, hit) for i, hit in enumerate(hits) if hit.kind in ('live', 'side')]
@@ -1199,11 +1202,18 @@ class App:
         elif self.mode == 'replays':
             self.put(2, 1, f'{LEAGUES[self.league][0]}  |  recent replays  |  search: {self.replay_search or "all"}')
             actions = 'Enter sources   s sport   f search titles   r refresh   Esc back'
-            rows = max(1, h-6-len(self.action_lines(actions)))
-            start = max(0, self.ri-rows+1)
-            for y, item in enumerate(self.replays[start:start+rows], 3):
-                selected = start+y-3 == self.ri
-                self.put(y, 2, f'{">" if selected else " "} [{item.source}] {item.title}', curses.A_REVERSE if selected else 0)
+            capacity = max(1, h-6-len(self.action_lines(actions)))
+            drawn = replays.lines(self.replays)
+            current = self.replays[self.ri] if self.replays else None
+            selected_line = next((i for i, line in enumerate(drawn) if line.game is current), 0)
+            start = max(0, selected_line-capacity+1)
+            for y, line in enumerate(drawn[start:start+capacity], 3):
+                if line.game is None:
+                    self.put(y, 2, f'  {line.text}', curses.A_DIM)
+                else:
+                    selected = line.game is current
+                    self.put(y, 2, f'{">" if selected else " "} {line.text}  {line.detail}',
+                             curses.A_REVERSE if selected else 0)
             if not self.replays:
                 self.put(4, 2, self.spinner() + ' Searching replay catalogs' if self.replay_pending else 'No replays found. Try another search or league.')
             self.footer(actions)
@@ -1233,7 +1243,7 @@ class App:
         else:
             if self.feed_context == 'replay':
                 self.put(2, 1, self.current_replay.title)
-                self.put(3, 1, f'Replay sources from {self.current_replay.source}')
+                self.put(3, 1, replays.source_heading(self.current_replay))
             elif self.feed_context == 'tv':
                 self.put(2, 1, self.current_channel.name)
                 self.put(3, 1, 'Live TV')
@@ -1542,7 +1552,14 @@ class App:
             if self.mode == 'search' and self.search_preview_key is not None:
                 self.search_preview_generation += 1
                 self.search_preview_key = None; self.search_preview_sections = {}; self.search_preview_pending = 0
-            return hits
+            grouped, placed = [], False
+            for hit in hits:
+                if hit.kind != 'replay':
+                    grouped.append(hit); continue
+                if not placed:
+                    grouped.extend(ReplayBundleHit(bundle) for bundle in bundle_replays(hits))
+                    placed = True
+            return grouped
         team = smart_search.Hit('team', primary.league, primary.display, primary, 1.0)
         games = [hit for hit in hits if hit.league == primary.league and hit.kind in ('live', 'upcoming')]
         live = [hit for hit in games if hit.kind == 'live']
@@ -1563,15 +1580,7 @@ class App:
                 for side in ('home', 'away'):
                     count = sum(feed.side == side and feed.kind != 'web' for feed in preview)
                     if count: result.append(SearchSideHit(hit.item, side, count))
-        bundles = {}
-        for hit in hits:
-            if hit.kind != 'replay' or hit.league != primary.league: continue
-            identity, title = replay_identity(self.search_index, hit)
-            if identity not in bundles:
-                bundles[identity] = ReplayBundle(hit.league, title, hit.date, [], identity)
-            if all(item.url != hit.item.url for item in bundles[identity].sources):
-                bundles[identity].sources.append(hit.item)
-        ordered = sorted(bundles.values(), key=lambda bundle: bundle.date or dt.date.min, reverse=True)
+        ordered = bundle_replays(hits, primary.league)
         limit = 10
         result.extend(ReplayBundleHit(bundle) for bundle in ordered[:limit])
         result.extend(upcoming[:2] if len(self.search_plan.query.fragments) == 1 else upcoming)
@@ -1849,13 +1858,16 @@ class App:
             try: generation, name, items, error = self.replay_queue.get_nowait()
             except queue.Empty: break
             if generation != self.replay_generation: continue
-            selected = self.replays[self.ri] if self.replay_selection_touched and self.ri < len(self.replays) else None
+            selected = (self.replays[self.ri].identity
+                        if self.replay_selection_touched and self.ri < len(self.replays) else None)
             self.replay_sections[name] = items
             self.replay_pending = max(0, self.replay_pending-1)
-            # Newest first across archives; titles without a date keep their archive's order at the end.
-            self.replays = sorted((item for source in self.replay_order for item in self.replay_sections.get(source, [])),
-                                  key=lambda item: smart_search.replay_date(item.title) or dt.date.min, reverse=True)
-            self.ri = self.replays.index(selected) if selected in self.replays else min(self.ri, max(0, len(self.replays)-1))
+            # Newest day first. Listings with no date stay at the end, in catalog order.
+            flat = sorted((item for source in self.replay_order for item in self.replay_sections.get(source, [])),
+                          key=lambda item: smart_search.replay_date(item.title) or dt.date.min, reverse=True)
+            self.replays = replays.games(flat, self.league)
+            found = next((i for i, game in enumerate(self.replays) if game.identity == selected), None)
+            self.ri = found if found is not None else min(self.ri, max(0, len(self.replays)-1))
             if error: self.replay_errors.append(f'{name}: {error}')
             changed = True
         if changed and self.mode == 'replays':
@@ -1909,12 +1921,23 @@ class App:
                         for source in channel.sources]
             tasks = [('Channel sources', channel_sources)]
         elif self.feed_context == 'replay':
-            item = self.current_replay
-            def replay_servers():
-                return [Feed(item.source, server.label, url=server.url, kind='candidate',
-                             note='replay server; resolved when selected',
-                             metadata={'referer':server.referer, 'provider':urllib.parse.urlsplit(server.url).hostname or ''})
-                        for server in replays.servers(item)]
+            pages = replays.listings_of(self.current_replay)
+            def replay_servers(pages=pages):
+                found, error = [], None
+                for item in pages:
+                    try:
+                        servers = replays.servers(item)
+                    except (OSError, ValueError) as exc:
+                        error = exc
+                        continue
+                    for server in servers:
+                        found.append(Feed(item.source, server.label, url=server.url, kind='candidate',
+                                          note='replay server; resolved when selected',
+                                          metadata={'referer': server.referer,
+                                                    'provider': urllib.parse.urlsplit(server.url).hostname or ''}))
+                if error is not None and not found:
+                    raise error
+                return found
             tasks = [('Replay servers', replay_servers)]
         else:
             tasks = feed_tasks(self.games[self.gi], dict(self.config))

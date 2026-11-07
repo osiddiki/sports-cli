@@ -1,0 +1,11 @@
+# Help, settings and search open from a list that is not Home and return to it with its selection kept.
+start ^ Home
+key 1 => ^ Live sports: choose a sport
+key Down => > WNBA
+key ? => ^ Help
+key Esc => > WNBA
+key , => ^ Settings
+key , => > WNBA
+key / => ^ Search
+key Esc => > WNBA
+key Esc => ^ Home

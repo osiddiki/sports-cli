@@ -1,0 +1,14 @@
+# Home's numbered rows open each section, Esc comes back to Home, and Home keeps its selection.
+start ^ Home
+key 1 => ^ Live sports: choose a sport
+key Esc => ^ Home
+key 2 => ^ Replays: choose a sport
+key Esc => ^ Home
+key 3 => ^ Live TV
+key Esc => ^ Home
+key 4 => ^ Search
+key Esc => ^ Home
+key 5 => ^ Settings
+key Esc => ^ Home
+key Up => >\s+4\s+Search
+key Enter => ^ Search

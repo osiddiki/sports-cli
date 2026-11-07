@@ -30,6 +30,8 @@ sh -n setup.sh install.sh installers/*.command installers/publish.sh
 
 To prove a change in the real app, use the project skill `.claude/skills/verify-sports-cli` (a pseudo-terminal driver with a feature map); `scripts/run_all.sh` drives every mapped feature and needs a network without a sandbox proxy. Run `./sports-cli` in a terminal, or `./sports-cli --list --league nba` for non-interactive output. Live provider tests depend on current games, upstream availability, and network access; keep deterministic fixtures in the unit tests and report which real-player or live checks were possible.
 
+To recheck screens and keys the same way each time, run the scripted walks in the project skill `.claude/skills/walk-sports-cli`; its ledger records each step's screen, key or click, and what showed.
+
 ## Code map
 
 - `install.sh` (macOS, Linux) and `install.ps1` (Windows, through winget): the one-command installers for non-developers. They install only missing pieces (Homebrew on a Mac, Python, mpv; Node.js only with `--ppv`/`-Ppv`; a detector-compatible Python and the ad model only with `--ads`/`-Ads`), unpack the app without Git, and write the `sports` launcher, which sets `SPORTS_CLI_COMMAND` so missing-piece messages name `sports --setup`, `--setup-ppv` or `--setup-ads`. Windows has no `setup.sh`; `install.ps1` does its work itself.

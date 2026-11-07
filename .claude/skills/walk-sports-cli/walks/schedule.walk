@@ -1,0 +1,7 @@
+# Needs network. An NBA schedule, its sport picker, help and back.
+args --league nba
+start ^ NBA  \|
+key s => ^ Live sports: choose a sport
+key Esc => ^ Games
+key ? => ^ Help
+key Esc => ^ Games

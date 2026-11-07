@@ -23,8 +23,10 @@ MAX_DEPTH = 7
 START = dt.datetime(2026, 10, 30, 23, tzinfo=dt.timezone.utc)
 GAMES = [nba.Game('1', 'Knicks at 76ers', START, 'Philadelphia 76ers', 'New York Knicks', '76ers', 'Knicks', state='live'),
          nba.Game('2', 'Lakers at Warriors', START, 'Golden State Warriors', 'Los Angeles Lakers', 'Warriors', 'Lakers')]
-REPLAYS = [replays.Replay('Archive', 'Bulls vs Celtics', 'https://replays.example/1'),
-           replays.Replay('Archive', 'Heat vs Magic', 'https://replays.example/2')]
+REPLAYS = replays.games([
+    replays.Replay('Archive', 'Bulls vs Celtics', 'https://replays.example/1'),
+    replays.Replay('Archive', 'Heat vs Magic', 'https://replays.example/2'),
+], 'nba')
 CHANNELS = [tv.Channel('CNN', [tv.Source('iptv-org', '720p', 'https://tv.example/cnn.m3u8', 'direct')], True),
             tv.Channel('CNBC', [tv.Source('iptv-org', '720p', 'https://tv.example/cnbc.m3u8', 'direct')], True)]
 
