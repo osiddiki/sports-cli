@@ -58,10 +58,8 @@ pub struct State {
     pub phone: Option<String>,
     /// +1 when the last screen change went deeper, -1 when it came back.
     pub direction: f32,
-    /// Keys a click asked Python to apply. The window has no server in tests, so this is
-    /// how a pointer event shows up as a selection.
     #[cfg(test)]
-    sent: Vec<String>,
+    sent_keys: Vec<String>,
 }
 
 fn init() -> State {
@@ -69,7 +67,7 @@ fn init() -> State {
         boot: None, server: None, waker: None, view: View { mode: "boot".into(), ..View::default() }, inflight: 0,
         error: None, overlay: Overlay::None, playing: None, now: 0.0, chrome_until: 0.0, phone: None, direction: 1.0,
         #[cfg(test)]
-        sent: Vec::new(),
+        sent_keys: Vec::new(),
     }
 }
 
@@ -95,10 +93,18 @@ pub fn depth(mode: &str) -> i32 {
 }
 
 impl State {
+    fn press_row(&mut self, index: usize) {
+        if !matches!(self.overlay, Overlay::None) { return }
+        if self.playing.as_ref().is_some_and(|p| p.stage == Stage::Full) { return }
+        for key in keys_for_row(&self.view, index) {
+            self.send(Request::Key(key, None));
+        }
+    }
+
     fn send(&mut self, request: Request) {
         #[cfg(test)]
         if let Request::Key(ref name, _) = request {
-            self.sent.push(name.clone());
+            self.sent_keys.push(name.clone());
         }
         if let Some(server) = &self.server {
             server.send(request);
@@ -234,6 +240,26 @@ fn poll(s: &mut State, now: f64, tx: &mut Tx) -> bool {
     changed
 }
 
+fn keys_for_row(view: &View, index: usize) -> Vec<String> {
+    if !view.rows.get(index).is_some_and(|row| row.pick) { return Vec::new() }
+    let target = list_cursor(view, index);
+    let current = if view.selected < 0 { 0 } else { list_cursor(view, view.selected.max(0) as usize) };
+    let mut keys = Vec::new();
+    let delta = target - current;
+    let step = if delta > 0 { "down" } else { "up" };
+    for _ in 0..delta.abs() { keys.push(step.to_string()) }
+    keys.push("enter".into());
+    keys
+}
+
+fn list_cursor(view: &View, visual: usize) -> i64 {
+    if view.mode == "search" {
+        view.rows.iter().take(visual).filter(|row| row.pick).count() as i64
+    } else {
+        visual as i64
+    }
+}
+
 /// The name the Python app gives a key (remote.CODES), or a typed character.
 fn key_name(e: &KeyEvent) -> Option<String> {
     Some(match &e.key {
@@ -322,34 +348,36 @@ mod click {
     use rune::{Env, Runtime};
     use server::Row;
 
-    fn rows(picks: &[bool]) -> Vec<Row> {
-        picks.iter().enumerate().map(|(i, pick)| Row {
+    #[derive(Clone, Copy)]
+    enum Slot { Result, Heading }
+
+    fn rows(slots: &[Slot]) -> Vec<Row> {
+        slots.iter().enumerate().map(|(i, slot)| Row {
             text: format!("row {i}"),
             cells: vec![format!("{i}"), format!("Row {i}"), String::new()],
-            pick: *pick,
-            style: if *pick { String::new() } else { "heading".into() },
+            pick: matches!(slot, Slot::Result),
+            style: if matches!(slot, Slot::Result) { String::new() } else { "heading".into() },
             ..Row::default()
         }).collect()
     }
 
-    fn screen(mode: &str, picks: &[bool], selected: i64) -> State {
+    fn screen(mode: &str, slots: &[Slot], selected: i64) -> State {
         let mut state = init();
         state.view.mode = mode.into();
         state.view.title = "Home".into();
-        state.view.rows = rows(picks);
+        state.view.rows = rows(slots);
         state.view.selected = selected;
         state
     }
 
-    /// What Python's list cursor would open after these keys. Arrows move it. Enter opens it.
-    /// 1 to 9 do both, except in search, where a digit is typed text.
-    fn opened(mode: &str, picks: &[bool], selected: i64, keys: &[String]) -> Option<i64> {
-        let len = if mode == "search" { picks.iter().filter(|p| **p).count() } else { picks.len() } as i64;
+    fn opened_row(mode: &str, slots: &[Slot], selected: i64, keys: &[String]) -> Option<i64> {
+        let result = |slot: &Slot| matches!(slot, Slot::Result);
+        let len = if mode == "search" { slots.iter().filter(|slot| result(slot)).count() } else { slots.len() } as i64;
         if len == 0 { return None }
         let current = if selected < 0 {
             0
         } else if mode == "search" {
-            picks.iter().take(selected as usize).filter(|p| **p).count() as i64
+            slots.iter().take(selected as usize).filter(|slot| result(slot)).count() as i64
         } else {
             selected
         };
@@ -374,35 +402,52 @@ mod click {
     }
 
     fn tap(state: State, key: &str) -> Vec<String> {
-        let mut rt = Runtime::new(state, view, (1120.0, 720.0), Env::new(true, 1.0));
+        tap_in(state, key, (1120.0, 720.0))
+    }
+
+    fn tap_in(state: State, key: &str, size: (f32, f32)) -> Vec<String> {
+        let mut rt = Runtime::new(state, view, size, Env::new(true, 1.0));
         rt.frame(0.0);
         let (x, y) = rt.find(key).unwrap_or_else(|| panic!("{key} is not on screen"));
         rt.pointer_move(x, y);
         rt.pointer_down(x, y);
         rt.pointer_up(x, y);
         rt.frame(1.0 / 60.0);
-        rt.state.sent
+        rt.state.sent_keys
     }
 
     #[test]
     fn a_pointer_on_a_row_selects_that_row() {
-        let picks = &[true, true, true, true];
-        let sent = tap(screen("home", picks, 0), "row-2");
-        assert_eq!(opened("home", picks, 0, &sent), Some(2), "a pointer on row 2 selects that row, keys were {sent:?}");
+        let slots = &[Slot::Result; 4];
+        let sent = tap(screen("home", slots, 0), "row-2");
+        assert_eq!(opened_row("home", slots, 0, &sent), Some(2), "a pointer on row 2 selects that row, keys were {sent:?}");
     }
 
     #[test]
     fn a_pointer_on_a_search_row_selects_that_result() {
-        // Two headings sit between the first result and the next, so the visual slot is not the cursor.
-        let picks = &[true, false, false, true, true];
-        let sent = tap(screen("search", picks, 0), "row-3");
-        assert_eq!(opened("search", picks, 0, &sent), Some(1), "a pointer on the second result selects it, keys were {sent:?}");
+        let slots = &[Slot::Result, Slot::Heading, Slot::Heading, Slot::Result, Slot::Result];
+        let sent = tap(screen("search", slots, 0), "row-3");
+        assert_eq!(opened_row("search", slots, 0, &sent), Some(1), "a pointer on the second result selects it, keys were {sent:?}");
     }
 
     #[test]
     fn a_pointer_on_a_heading_selects_nothing() {
-        let picks = &[true, false, true];
-        let sent = tap(screen("home", picks, 0), "row-1");
+        let slots = &[Slot::Result, Slot::Heading, Slot::Result];
+        let sent = tap(screen("home", slots, 0), "row-1");
         assert!(sent.is_empty(), "a heading is not a row you can open, keys were {sent:?}");
+    }
+
+    #[test]
+    fn a_pointer_above_the_selection_selects_that_row() {
+        let slots = &[Slot::Result; 4];
+        let sent = tap(screen("channels", slots, 3), "row-1");
+        assert_eq!(opened_row("channels", slots, 3, &sent), Some(1), "a pointer above the highlight selects that row, keys were {sent:?}");
+    }
+
+    #[test]
+    fn a_pointer_past_the_numbered_rows_selects_that_row() {
+        let slots = &[Slot::Result; 12];
+        let sent = tap_in(screen("games", slots, 0), "row-10", (1120.0, 1600.0));
+        assert_eq!(opened_row("games", slots, 0, &sent), Some(10), "a pointer on row 10 selects that row, keys were {sent:?}");
     }
 }

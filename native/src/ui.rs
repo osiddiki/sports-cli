@@ -174,6 +174,9 @@ fn numbered(v: &View) -> bool {
 fn line(v: &View, i: usize, r: &Row, selected: bool, k: &Ink) -> El {
     let tone = if !r.pick && r.style == "heading" { k.faint } else if selected { k.text } else { k.mid };
     let mut base = row().key(format!("row-{i}")).w_full().h(ROW).pl(22.0).pr(14.0).gap(14.0).items_center();
+    if r.pick {
+        base = base.on_press(move |s: &mut State| s.press_row(i));
+    }
     if numbered(v) {
         // 1 to 9 open these rows (sportscli/screens.py); the number says which.
         let label = if i < 9 { (i + 1).to_string() } else { String::new() };
