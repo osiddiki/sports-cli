@@ -3,7 +3,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from sportscli import app as nba, replays, smart_search as search
+from sportscli import app as nba, players, remote, replays, smart_search as search
 
 
 class SearchTests(unittest.TestCase):
@@ -253,6 +253,34 @@ class SearchTests(unittest.TestCase):
         view = nba.describe_feed(feed, {'checks':[True,True,True],'height':720}, 'OK')
         self.assertEqual(view.quality,'720p')
         self.assertEqual(view.check,'OK A 3/3')
+
+    def test_search_row_cursor_is_the_result_index(self):
+        app = nba.App(remote.Screen(), {})
+        app.mode = 'search'
+        app.search_query = 'kings'
+        app.search_index = self.index
+        app.search_plan = search.make_plan(self.index, search.parse_query(app.search_query, self.today))
+        team = app.search_plan.primary
+        query = app.search_plan.query
+        app.player_key = (query.fragments[0], query.league)
+        app.player_cache[app.player_key] = (time.monotonic() + 60, [players.Player('p1', 'Shaq King', team, True)], None)
+        app.search_work = []
+        app.rebuild_global_results()
+        shown = remote.view(app)['rows']
+        seen = 0
+        mismatch = None
+        for visual, (index, text, _style) in enumerate(app.search_rows(120)):
+            row = shown[visual]
+            if index is None:
+                self.assertFalse(row['pick'])
+                self.assertNotIn('cursor', row)
+                continue
+            self.assertEqual(row['cursor'], index)
+            if seen != index and mismatch is None:
+                mismatch = (text.strip(), index, seen)
+            seen += 1
+        self.assertIsNotNone(mismatch)
+        self.assertGreater(seen, 1)
 
 
 if __name__ == '__main__':

@@ -84,8 +84,10 @@ class Headless(app.App):
         self.poll_feed_actions(); self.poll_gui_players()
 
 
-def row(text, *, detail='', style='', pick=True, cells=None):
-    return {'text': text, 'cells': cells or [text], 'detail': detail, 'style': style, 'pick': pick}
+def row(text, *, detail='', style='', pick=True, cells=None, cursor=None):
+    out = {'text': text, 'cells': cells or [text], 'detail': detail, 'style': style, 'pick': pick}
+    if cursor is not None: out['cursor'] = cursor
+    return out
 
 
 def view(a):
@@ -102,7 +104,7 @@ def view(a):
         for index, text, style in a.search_rows(120):
             if index is not None and index == a.search_position: selected = len(rows)
             rows.append(row(('  ' if index is not None and style != 'team' else '') + text.strip(), style={'player-heading': 'heading', 'channel-heading': 'heading'}.get(style, style),
-                            pick=index is not None))
+                            pick=index is not None, cursor=index))
         if not a.search_results:
             waiting = bool(a.search_inflight & a.search_needed or a.player_due or a.player_key in a.player_inflight)
             out['empty'] = ('Try: stephen curry  |  lakers today  |  mavs vs rockets' if not a.search_query else
@@ -154,6 +156,8 @@ def view(a):
         feeds_view(a, out)
         selected = a.fi
     if selected is not None and 0 <= selected < len(rows): out['selected'] = selected
+    for index, item in enumerate(out['rows']):
+        if item['pick'] and 'cursor' not in item: item['cursor'] = index
     return out
 
 
