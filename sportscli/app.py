@@ -1753,18 +1753,11 @@ class App:
             threading.Thread(target=worker, daemon=True).start()
 
     def poll_replays(self):
-        active = (self.mode == 'replays' or (self.mode == 'feeds' and self.feed_context == 'replay')
-                  or (self.mode == 'leagues' and self.section == 'replays')
-                  or (self.mode == 'search' and (self.search_return == 'replays'
-                      or (self.search_return == 'feeds' and self.feed_context == 'replay')))
-                  or (self.mode == 'help' and (self.help_return == 'replays'
-                      or (self.help_return == 'feeds' and self.feed_context == 'replay')
-                      or (self.help_return == 'leagues' and self.section == 'replays'))))
         changed = False
         while True:
             try: generation, name, items, error = self.replay_queue.get_nowait()
             except queue.Empty: break
-            if generation != self.replay_generation or not active: continue
+            if generation != self.replay_generation: continue
             selected = self.replays[self.ri] if self.replay_selection_touched and self.ri < len(self.replays) else None
             self.replay_sections[name] = items
             self.replay_pending = max(0, self.replay_pending-1)
@@ -1863,15 +1856,13 @@ class App:
             if not self.closed.is_set(): self.feed_queue.put((generation, name, feeds, error))
 
     def poll_feeds(self):
-        active = (self.mode == 'feeds' or (self.mode == 'leagues' and self.league_cancel == 'feeds')
-                  or (self.mode == 'search' and self.search_return == 'feeds')
-                  or (self.mode == 'help' and (self.help_return == 'feeds'
-                      or (self.help_return == 'leagues' and self.league_cancel == 'feeds'))))
+        # The generation alone says which list an answer belongs to; a new list bumps it, leaving one for
+        # another screen does not, so Esc returns to a list that kept loading and checking.
         changed = False
         while True:
             try: generation, name, feeds, error = self.feed_queue.get_nowait()
             except queue.Empty: break
-            if generation != self.feed_generation or not active: continue
+            if generation != self.feed_generation: continue
             visible = self.visible_feeds()
             selected = visible[self.fi] if self.feed_selection_touched and self.fi < len(visible) else None
             self.feed_sections[name] = feeds
@@ -2525,12 +2516,8 @@ class App:
             self.search_query += typed; self.update_global_search()
         return True
 
-    def leave_feeds(self):
-        if self.mode == 'feeds': self.feed_generation += 1; self.feed_pending = 0
-
     def open_section(self, section):
         """Home's three sections, reachable from every screen with 1, 2 and 3."""
-        self.leave_feeds()
         if section == 'tv':
             self.mode = 'channels'; self.ci = min(self.ci, max(0, len(self.visible_channels())-1))
             # Channel lists change slowly; reuse one for ten minutes.
@@ -2545,7 +2532,6 @@ class App:
         self.mode = 'leagues'; self.message = 'Choose a sport for live games.' if section == 'sports' else 'Choose a sport for replays.'
 
     def open_search(self):
-        self.leave_feeds()
         self.search_return = self.mode; self.mode = 'search'; self.update_global_search()
 
     def open_settings(self):
@@ -2579,7 +2565,6 @@ class App:
             else: self.open_section(action)
         elif self.mode == 'leagues':
             self.league = list(LEAGUES)[self.league_index]
-            if self.league_cancel == 'feeds': self.leave_feeds()
             self.league_cancel = None; self.search = ''; self.gi = 0
             if self.section == 'replays': self.mode = 'replays'; self.replay_search = ''; self.refresh_replays()
             else: self.mode = 'games'; self.refresh_games()
@@ -2608,7 +2593,6 @@ class App:
     def go_back(self):
         """Up one level: sources -> list -> sport -> home."""
         if self.mode == 'feeds':
-            self.leave_feeds()
             origin = self.feed_return or {'replay': 'replays', 'tv': 'channels'}.get(self.feed_context, 'games')
             self.feed_return = None; self.arrive(origin)
             if origin == 'search': self.rebuild_global_results()
