@@ -15,3 +15,4 @@ dist/
 
 # Screenshots mpv saves into the working directory.
 mpv-shot*
+verification/*/states/

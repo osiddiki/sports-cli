@@ -1,0 +1,29 @@
+---
+title: "Native window and the Python app"
+---
+stateDiagram-v2
+  state "Screen In step with the app" as s0 {
+    s1: Player No player
+    s2: Player Playing
+    s3: Player Player failed
+  }
+  state "Screen Waiting for the app" as s4 {
+    s5: Player No player
+    s6: Player Playing
+    s7: Player Player failed
+  }
+  [*] --> s1
+  s1 --> s5: the timer asks for the screen or you press a key
+  s5 --> s1: the window reads the oldest answer on a connection
+  s5 --> s2: the window reads the oldest answer on a connection
+  s2 --> s3: the stream gives no picture
+  s2 --> s1: you stop the player
+  s2 --> s6: the timer asks for the screen or you press a key
+  s3 --> s1: you stop the player
+  s3 --> s7: the timer asks for the screen or you press a key
+  s6 --> s7: the stream gives no picture
+  s6 --> s5: you stop the player
+  s5 --> s6: the window reads the oldest answer on a connection
+  s7 --> s5: you stop the player
+  s6 --> s2: the window reads the oldest answer on a connection
+  s7 --> s3: the window reads the oldest answer on a connection

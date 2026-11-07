@@ -99,6 +99,16 @@ When using mpv, close its window or press `q` in mpv to return to the picker. II
 
 The random part of the link is its password. It stays the same between runs, so bookmarks keep working, and it's stored in your config file as `web_token`; delete that line to get a new link. Anyone with the link who can reach your computer can watch through it, so share it only with people you trust. Use `--web-port` to pick another port. Replays, search and the ad detector are terminal-only for now.
 
+## Native window (Mac, experimental)
+
+`native/` runs the same app as a Mac window drawn with Rune, and plays the game inside the window. Each league has its own accent colour, and the selection glides between rows. Every source shows a signal ruler: lit ticks for how well it plays, tall ticks for sharpness. Building it needs [Rust](https://rustup.rs):
+
+```sh
+cd native && cargo run --release
+```
+
+The keys are the terminal app's. On the player, Space pauses, `m` mutes, Esc or Tab shrinks the video into a corner so you can keep browsing, Tab brings it back, `o` opens the stream in mpv instead, and Backspace or ⌘. stops it. Ad muting and the stats overlay need mpv, so press `o` for those. [docs/native-ui.md](docs/native-ui.md) explains the design.
+
 ## Controls
 
 The app opens on **Home**: live sports, replays, live TV, search and settings. Every key means the same thing on every screen, and each screen's footer lists the keys that work there.
