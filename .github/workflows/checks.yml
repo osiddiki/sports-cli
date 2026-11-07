@@ -70,6 +70,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: sports-cli.zip
+          skip-decompress: true
       - name: Publish the archives
         env:
           GH_TOKEN: ${{ github.token }}
