@@ -343,11 +343,16 @@ def get_games(day=None, league='nba'):
     path = LEAGUES[league][1]
     def scoreboard(date):
         return games_from_espn(request(f'{ESPN}/{path}/scoreboard?dates={date:%Y%m%d}&limit=300'), league=league)
-    games = scoreboard(day)
-    if day != default_day(): return games
+    if day != default_day(): return scoreboard(day)
     # Late West Coast games run past midnight Eastern while ESPN keeps them on the previous day.
-    try: earlier = [game for game in scoreboard(day - dt.timedelta(days=1)) if game.state == 'live']
-    except (OSError, ValueError): return games
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        yesterday = pool.submit(scoreboard, day - dt.timedelta(days=1))
+        games = scoreboard(day)
+        try: earlier = [game for game in yesterday.result() if game.state == 'live']
+        except (OSError, ValueError): return games
+    finally:
+        pool.shutdown(wait=False)
     ids = {game.id for game in games}
     return sorted([game for game in earlier if game.id not in ids] + games, key=lambda game: game.start)
 
@@ -465,14 +470,20 @@ def resolve_streamfree(feed, *, timeout=12):
     variant = feed.metadata['variant']
     category = feed.metadata.get('category', 'basketball')
     embed_headers = {'Referer': f'{SF_ROOT}/player/{category}/{key}', 'Origin': SF_ROOT}
-    page = request_text(feed.url, headers=embed_headers, timeout=timeout)
-    match = re.search(r'const\s+_0x\s*=\s*(\{.*?\})\s*;', page, re.S)
-    if not match:
-        raise ValueError('StreamFree player did not provide playlist tokens')
-    tokens = json.loads(match.group(1)).get(quality)
-    if not isinstance(tokens, dict) or not all(key in tokens for key in ('_t', '_e', '_n')):
-        raise ValueError('StreamFree playlist tokens are missing')
-    info = request(SF_ROOT + '/get-stream-key/' + urllib.parse.quote(key), headers=embed_headers, timeout=timeout)
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        stream_key = pool.submit(request, SF_ROOT + '/get-stream-key/' + urllib.parse.quote(key),
+                                 headers=embed_headers, timeout=timeout)
+        page = request_text(feed.url, headers=embed_headers, timeout=timeout)
+        match = re.search(r'const\s+_0x\s*=\s*(\{.*?\})\s*;', page, re.S)
+        if not match:
+            raise ValueError('StreamFree player did not provide playlist tokens')
+        tokens = json.loads(match.group(1)).get(quality)
+        if not isinstance(tokens, dict) or not all(key in tokens for key in ('_t', '_e', '_n')):
+            raise ValueError('StreamFree playlist tokens are missing')
+        info = stream_key.result()
+    finally:
+        pool.shutdown(wait=False)
     if info.get('is_external') and info.get('external_url'):
         url = info['external_url']
         if not safe_url(url):

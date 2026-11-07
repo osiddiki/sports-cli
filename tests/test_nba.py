@@ -84,6 +84,23 @@ class DiscoveryTests(unittest.TestCase):
             # A chosen past or future date shows only that date.
             self.assertEqual([g.id for g in nba.get_games(dt.date(2026, 10, 30))], ['pending', 'late'])
 
+    def test_today_fetches_both_scoreboards_at_once(self):
+        today = dt.date(2026, 10, 31)
+        def fetch(url, **kwargs):
+            time.sleep(.4); return {'events': []}
+        with patch.object(nba, 'request', side_effect=fetch), patch.object(nba, 'default_day', return_value=today):
+            started = time.monotonic()
+            self.assertEqual(nba.get_games(today), [])
+            self.assertLess(time.monotonic() - started, .65)
+
+    def test_a_failed_yesterday_scoreboard_still_returns_today(self):
+        today = dt.date(2026, 10, 31)
+        def fetch(url, **kwargs):
+            if '20261030' in url: raise OSError('offline')
+            return {'events': []}
+        with patch.object(nba, 'request', side_effect=fetch), patch.object(nba, 'default_day', return_value=today):
+            self.assertEqual(nba.get_games(today), [])
+
     def test_fetch_streams_is_game_specific_and_reports_source_failure(self):
         def fetch(url, **kwargs):
             if url == nba.PPV:
@@ -128,6 +145,19 @@ class DiscoveryTests(unittest.TestCase):
         self.assertTrue(url.startswith(f'{base}/live-cdn/{key}1080p2/index.m3u8?'))
         self.assertIn('_t=fresh', url)
         self.assertEqual(headers['Referer'], f'{base}/embed/basketball/{key}1080p2')
+
+    def test_streamfree_fetches_page_and_stream_key_at_once(self):
+        feed = nba.Feed('StreamFree', 'Source 1', url='https://strmfree.st/embed/basketball/lakers1080p1', kind='sf',
+                        metadata={'key':'lakers', 'quality':'1080p', 'variant':'lakers1080p1', 'category':'basketball'})
+        def slow_page(url, **kwargs):
+            time.sleep(.4); return 'const _0x = {"1080p":{"_t":"t","_e":1,"_n":"n"}};'
+        def slow_key(url, **kwargs):
+            time.sleep(.4); return {'server_name':'cdn'}
+        with patch.object(nba, 'request', side_effect=slow_key), patch.object(nba, 'request_text', side_effect=slow_page):
+            started = time.monotonic()
+            url, _ = nba.resolve_streamfree(feed)
+            self.assertLess(time.monotonic() - started, .65)
+        self.assertIn('/live-cdn/lakers1080p1/index.m3u8?', url)
 
     def test_streamfree_omits_sources_marked_not_live(self):
         key = 'lakers-vs-clippers'
