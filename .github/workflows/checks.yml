@@ -1,0 +1,86 @@
+name: Checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Unit tests
+        run: python3 -m unittest
+      - name: Compile the app modules
+        run: python3 -m py_compile sports-cli sportscli/*.py sportscli/tools/*.py
+      - name: Check the install scripts
+        run: sh -n setup.sh install.sh installers/*.command installers/publish.sh
+      - run: |
+          git archive --format=tar.gz --prefix=sports-cli/ -o sports-cli.tar.gz HEAD
+          git archive --format=zip --prefix=sports-cli/ -o sports-cli.zip HEAD
+          python3 - <<'PY'
+          import sys
+          import tarfile
+          import zipfile
+
+          def roots(names):
+              return {name.split("/")[0] for name in names if name}
+
+          checks = {
+              "tar.gz": tarfile.open("sports-cli.tar.gz").getnames(),
+              "zip": zipfile.ZipFile("sports-cli.zip").namelist(),
+          }
+          for label, names in checks.items():
+              if roots(names) != {"sports-cli"}:
+                  sys.exit(label + " must contain one top-level sports-cli directory")
+              if "sports-cli/sports-cli" not in names:
+                  sys.exit(label + " is missing sports-cli/sports-cli")
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sports-cli.tar.gz
+          path: sports-cli.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sports-cli.zip
+          path: sports-cli.zip
+          if-no-files-found: error
+
+  release:
+    needs: checks
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: sports-cli.tar.gz
+      - uses: actions/download-artifact@v8
+        with:
+          name: sports-cli.zip
+      - name: Publish the archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          test -f sports-cli.tar.gz
+          test -f sports-cli.zip
+          tag="$GITHUB_REF_NAME"
+          notes='Source archives for the existing installers. install.sh uses sports-cli.tar.gz. install.ps1 uses sports-cli.zip. Set SPORTS_CLI_ARCHIVE to the asset URL. This release has no Mac app and no Windows app.'
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" --clobber sports-cli.tar.gz sports-cli.zip
+          else
+            gh release create "$tag" --title "$tag" --notes "$notes" sports-cli.tar.gz sports-cli.zip
+          fi
