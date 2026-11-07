@@ -22,13 +22,13 @@ $W/scripts/walk.py $W/walks/*.walk                                              
 
 The first run creates the same `pyte` venv as `verify-sports-cli`. If `python3 -m venv` fails, install the `python3-venv` package. Each walk gets its own settings folder and headless mpv, and the script ends only the app it started.
 
-3. Read `summary.md` in the evidence folder it prints (default `~/.cache/sports-cli-verify/walks/<time>/`). For each walk with a fail or a no effect, open its `ledger.md`.
+3. Read `summary.md` in the evidence folder it prints (`--out DIR`, default `~/.cache/sports-cli-verify/walks/<time>/`). For each walk with a fail or a no effect, open its `ledger.md`.
 
 ## Hand the walk to a cheap model
 
 A screen walk needs no judgment. Spawn a subagent on the cheapest fast model you have, for example `composer-2.5-fast`, with this brief:
 
-> In `<repo>`, run `.claude/skills/walk-sports-cli/scripts/walk.py <walk files>`. Do not edit any file. Reply with the evidence folder, `summary.md` verbatim, and every ledger row whose verdict is `fail` or `no effect`, verbatim, with its shot path.
+> In `<repo>`, run `.claude/skills/verify-sports-cli/scripts/doctor.sh`, then `.claude/skills/walk-sports-cli/scripts/walk.py <walk files>`. If the doctor prints a proxy line, run only the offline walks. Do not edit any file. Reply with the doctor's output, the evidence folder, `summary.md` verbatim, and every ledger row whose verdict is `fail` or `no effect`, verbatim, with its shot path.
 
 Read the rows it returns yourself before you report them.
 
