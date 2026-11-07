@@ -70,6 +70,11 @@ class RemoteTests(unittest.TestCase):
         self.assertEqual([row['text'] for row in view['rows']], ['CNN'])
         self.assertEqual(view['events'], [])
 
+    def test_views_are_numbered_in_the_order_they_were_made(self):
+        first, second = self.remote.view()['seq'], self.remote.key('down')['seq']
+        self.assertLess(first, second)
+        self.assertLess(second, self.remote.view()['seq'])
+
     def test_unknown_key_is_refused(self):
         with self.assertRaises(ValueError): self.remote.key('f13')
 
@@ -81,6 +86,7 @@ class RemoteTests(unittest.TestCase):
         self.assertEqual([event['type'] for event in events], ['play'])
         self.assertEqual(events[0]['command'][0], 'mpv')
         self.assertEqual(events[0]['command'][-1], 'https://stream.example/a.m3u8')
+        self.assertEqual((events[0]['url'], events[0]['headers']), ('https://stream.example/a.m3u8', {'Referer': 'https://stream.example/'}))
         self.assertEqual(self.remote.view()['events'], [])
         app.hidden_feeds.clear()
         self.remote.exited(3)

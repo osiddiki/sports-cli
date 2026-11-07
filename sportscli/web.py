@@ -226,7 +226,7 @@ def serve(config, host='0.0.0.0', port=PORT):
             prefix = f'/{token}/'
             if not parts.path.startswith(prefix) and parts.path != f'/{token}':
                 return self.reply(404, b'Not found', 'text/plain')
-            path, query = parts.path[len(prefix):], dict(urllib.parse.parse_qsl(parts.query))
+            path, query = parts.path[len(prefix):], dict(urllib.parse.parse_qsl(parts.query, keep_blank_values=True))
             try:
                 if path in ('', 'index.html'): return self.reply(200, PAGE.encode(), 'text/html; charset=utf-8')
                 if path == 'manifest.json': return self.reply(200, MANIFEST.encode(), 'application/manifest+json')

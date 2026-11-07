@@ -62,8 +62,9 @@ class Headless(app.App):
         url, headers = resolved
         note = self.stream_notes.pop(url, '')
         self.playing = feed
-        self.events.append({'type': 'play', 'title': self.title(), 'command': app.mpv_command(url, headers, cache=self.cache)})
-        self.message = 'Playing in mpv; keep browsing here.' + note
+        self.events.append({'type': 'play', 'title': self.title(), 'url': url, 'headers': dict(headers),
+                            'command': app.mpv_command(url, headers, cache=self.cache)})
+        self.message = 'Playing; keep browsing here.' + note
 
     def player_exited(self, code):
         feed, self.playing = self.playing, None
@@ -92,7 +93,8 @@ def view(a):
     heading = {'home': 'Home', 'settings': 'Settings', 'search': 'Search', 'games': 'Games', 'replays': 'Replays',
                'replay_sources': 'Replay sites', 'channels': 'Live TV', 'feeds': 'Sources', 'help': 'Help',
                'leagues': 'Live sports: choose a sport' if a.section == 'sports' else 'Replays: choose a sport'}
-    out = {'mode': a.mode, 'title': heading.get(a.mode, ''), 'busy': a.busy(), 'message': a.message, 'info': [],
+    tv = a.mode == 'channels' or a.mode == 'feeds' and a.feed_context == 'tv'
+    out = {'mode': a.mode, 'accent': 'tv' if tv else a.league, 'title': heading.get(a.mode, ''), 'busy': a.busy(), 'message': a.message, 'info': [],
            'columns': None, 'rows': [], 'selected': -1, 'empty': '', 'actions': '', 'global': GLOBAL_KEYS, 'query': None}
     rows, selected = out['rows'], None
     if a.mode == 'search':
@@ -206,7 +208,7 @@ def feeds_view(a, out):
 class Remote:
     """One headless app behind a lock; a background thread runs the polling the curses loop does between keys."""
     def __init__(self, config):
-        self.app, self.lock, self.closed = Headless(config), threading.Lock(), threading.Event()
+        self.app, self.lock, self.closed, self.seq = Headless(config), threading.Lock(), threading.Event(), 0
         threading.Thread(target=self.loop, daemon=True).start()
 
     def loop(self):
@@ -214,9 +216,11 @@ class Remote:
             with self.lock: self.app.poll()
 
     def view(self):
+        """The screen and the events since the last view. seq orders views, so a client can drop one that arrives late."""
         with self.lock:
             out = view(self.app)
             out['events'], self.app.events = self.app.events, []
+            self.seq += 1; out['seq'] = self.seq
             return out
 
     def key(self, name, text=None):
