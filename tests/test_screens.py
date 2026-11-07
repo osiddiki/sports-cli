@@ -214,22 +214,32 @@ class ScreenChartTests(unittest.TestCase):
             self.assertEqual((app.mode, app.league), ('games', league))
             app.render(); rows, _ = app.scr.getmaxyx()
             footer = app.scr.text.get(rows - 4, '') + '   ' + app.scr.text.get(rows - 3, '')
-            for hint, key in (('s sport', 's'), ('[ ] date', ']'), ('f filter', 'f'), ('r refresh', 'r'), ('2 replays', '2')):
+            for hint, key in (('s sport', 's'), ('[ ] date', ']'), ('f filter', 'f'), ('r refresh', 'r')):
                 self.assertIn(hint, footer)
                 app = schedule(league); before = snapshot(app); press(app, key)
                 self.assertNotEqual(snapshot(app), before, f'"{hint}" does nothing for {league}')
 
     def test_keys_never_change_meaning(self):
-        # s always changes sport, / always searches, 1 2 3 always open the same sections.
+        # s always changes sport, / always searches, , always opens settings.
         for before, path in self.paths.items():
             if before[0] in ('search', 'help'): continue
-            for key, expected in (('/', 'search'), ('1', 'leagues'), ('2', 'leagues'), ('3', 'channels'), (',', 'settings')):
+            for key, expected in (('/', 'search'), (',', 'settings')):
                 if key == ',' and before[0] == 'settings': continue  # , closes settings
                 app = self.replay(path); press(app, key)
                 self.assertEqual(app.mode, expected, f'{key} from {before[0]}')
             app = self.replay(path)
             if press(app, 's') and app.mode != before[0]:
                 self.assertEqual(app.mode, 'leagues', f's from {before[0]}')
+
+    def test_a_digit_opens_that_row(self):
+        # 2 does what selecting the second row and pressing Enter does, on every list.
+        for before, path in self.paths.items():
+            if before[0] in ('search', 'help', 'feeds'): continue  # search types digits; feeds would play
+            app = self.replay(path)
+            if len(self.items(app)) < 2: continue
+            press(app, '2'); by_digit = snapshot(app)
+            app = self.replay(path); field, _ = app.cursor(); setattr(app, field, 1); press(app, 'Enter')
+            self.assertEqual(by_digit, snapshot(app), f'2 on {before[0]} ({" ".join(path) or "start"})')
 
     def test_docs_show_the_current_chart(self):
         import pathlib

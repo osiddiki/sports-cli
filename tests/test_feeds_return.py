@@ -53,7 +53,7 @@ class FeedsReturn(unittest.TestCase):
             self.gate.wait(); return {'height': 720, 'speed': 3}
         patch = mock.patch.object(app, 'quick_probe_feed', probe)
         patch.start(); self.addCleanup(patch.stop)
-        for away in ('1', '/', 's'):
+        for away in (',', '/', 's'):
             with self.subTest(away=away):
                 self.gate.clear()
                 a = self.screen([('Fast', lambda: list(feeds))])

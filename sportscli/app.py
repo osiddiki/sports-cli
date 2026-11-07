@@ -60,11 +60,11 @@ CONFIG = pathlib.Path(os.environ.get('XDG_CONFIG_HOME', pathlib.Path.home() / '.
 HOME_ITEMS = [('sports', '1', 'Live sports', "Today's games and their streams"),
               ('replays', '2', 'Replays', 'Full games from recent days'),
               ('tv', '3', 'Live TV', 'CNN, CNBC, MS NOW, Fox News and more'),
-              ('search', '/', 'Search', 'Teams, players, games and channels'),
-              ('settings', ',', 'Settings', 'Player, backup streams, ad breaks')]
+              ('search', '4', 'Search', 'Teams, players, games and channels'),
+              ('settings', '5', 'Settings', 'Player, backup streams, ad breaks')]
 
 HELP_LINES = [
-    'EVERYWHERE     1 live sports   2 replays   3 live TV   / search   , settings   ? help   q quit',
+    'EVERYWHERE     1-9 open that row   / search   , settings   ? help   q quit',
     'MOVE           Up/Down or j/k: select    Enter, Right or l: open    Esc, Left, h or Backspace: back',
     'LISTS          f: filter this list    r: refresh    s: change sport (games and replays)',
     'SCHEDULE       [ and ]: previous or next day',
@@ -1063,7 +1063,7 @@ class App:
         h, w = self.scr.getmaxyx()
         lines = self.action_lines(actions)
         for y, line in enumerate(lines, h-3-len(lines)): self.put(y, 1, line)
-        self.put(h-3, 1, '1 sports   2 replays   3 TV   / search   , settings   ? help   q quit' if w >= 72
+        self.put(h-3, 1, '1-9 open row   / search   , settings   ? help   q quit' if w >= 72
                  else '1 2 3 sections   / search   , settings   q quit')
 
     def busy(self):
@@ -2454,7 +2454,6 @@ class App:
         self.gui_players = running
 
     # Keys that mean the same thing on every screen except search, where they type.
-    SECTIONS = {ord('1'): 'sports', ord('2'): 'replays', ord('3'): 'tv'}
     BACK_KEYS = (27, curses.KEY_BACKSPACE, 127, 8, curses.KEY_LEFT, ord('h'))
     OPEN_KEYS = (10, 13, curses.KEY_ENTER, curses.KEY_RIGHT, ord('l'))
     # What each screen asks of the user when they arrive back on it.
@@ -2474,18 +2473,18 @@ class App:
             if key in (ord('?'), *self.BACK_KEYS): self.arrive(self.help_return); return True
             elif key in (curses.KEY_UP, ord('k')): self.help_scroll = max(0, self.help_scroll-1); return True
             elif key in (curses.KEY_DOWN, ord('j')): self.help_scroll = min(len(HELP_LINES)-1, self.help_scroll+1); return True
-            elif key not in (*self.SECTIONS, ord('/'), ord(',')): self.unused_key(typed); return True
+            elif key not in (ord('/'), ord(',')): self.unused_key(typed); return True
             if key == ord(',') and self.help_return == 'settings': self.arrive('settings'); return True
             self.mode = self.help_return  # the global keys leave help as if from the screen beneath it
         if key == ord('?'):
             self.help_return = self.mode; self.help_scroll = 0; self.mode = 'help'; self.message = 'Controls and setup.'
-        elif key in self.SECTIONS: self.open_section(self.SECTIONS[key])
         elif key == ord('/'): self.open_search()
         elif key == ord(','): self.open_settings()
         elif key == ord('s') and (self.mode in ('games', 'replays') or self.mode == 'feeds' and self.feed_context != 'tv'): self.pick_sport()
         elif key in (curses.KEY_UP, ord('k')): self.move(-1)
         elif key in (curses.KEY_DOWN, ord('j')): self.move(1)
         elif key in self.OPEN_KEYS: self.open_selected()
+        elif ord('1') <= key <= ord('9'): self.open_row(key - ord('1'), typed)
         elif key in self.BACK_KEYS: self.go_back()
         elif key == ord('r') and self.mode in ('games', 'replays', 'channels', 'feeds'):
             {'games': self.refresh_games, 'replays': self.refresh_replays,
@@ -2525,16 +2524,13 @@ class App:
         return True
 
     def open_section(self, section):
-        """Home's three sections, reachable from every screen with 1, 2 and 3."""
+        """Home's three sections."""
         if section == 'tv':
             self.mode = 'channels'; self.ci = min(self.ci, max(0, len(self.visible_channels())-1))
             # Channel lists change slowly; reuse one for ten minutes.
             if not self.channels or time.monotonic() - self.channels_loaded_at > 600: self.refresh_channels()
             else: self.message = self.channel_summary()
             return
-        if self.section == section and (self.mode in ('games', 'replays') or self.mode == 'feeds' and self.feed_context != 'tv'):
-            # The key for the section you are in changes its sport; Esc comes back here.
-            self.pick_sport(); return
         self.section = section; self.league_cancel = None
         self.league_index = list(LEAGUES).index(self.league)
         self.mode = 'leagues'; self.message = 'Choose a sport for live games.' if section == 'sports' else 'Choose a sport for replays.'
@@ -2553,17 +2549,32 @@ class App:
         self.league_index = list(LEAGUES).index(self.league); self.mode = 'leagues'
         self.message = 'Choose a sport.'
 
-    def move(self, step):
+    def cursor(self):
+        """The current list's selection field and its length."""
         size = {'home': len(HOME_ITEMS), 'leagues': len(LEAGUES), 'games': len(self.games), 'replays': len(self.replays),
                 'channels': len(self.visible_channels()), 'settings': len(self.settings_rows()),
                 'replay_sources': len(self.current_bundle.sources) if self.current_bundle else 0,
                 'feeds': len(self.visible_feeds())}.get(self.mode, 0)
         field = {'home': 'home_index', 'leagues': 'league_index', 'games': 'gi', 'replays': 'ri', 'channels': 'ci',
                  'settings': 'settings_index', 'replay_sources': 'bundle_index', 'feeds': 'fi'}.get(self.mode)
+        return field, size
+
+    def select(self, row):
+        field, size = self.cursor()
         if not field: return
-        setattr(self, field, min(max(0, size-1), max(0, getattr(self, field) + step)))
+        setattr(self, field, min(max(0, size-1), max(0, row)))
         if self.mode == 'replays': self.replay_selection_touched = True
         if self.mode == 'feeds': self.feed_selection_touched = True
+
+    def move(self, step):
+        field, _ = self.cursor()
+        if field: self.select(getattr(self, field) + step)
+
+    def open_row(self, row, typed):
+        """1 to 9: open that row of the list, as moving to it and pressing Enter would."""
+        field, size = self.cursor()
+        if not field or row >= size: self.unused_key(typed); return
+        self.select(row); self.open_selected()
 
     def open_selected(self):
         if self.mode == 'home':

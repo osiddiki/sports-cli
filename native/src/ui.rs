@@ -10,7 +10,6 @@ use rune::{Color, Cx, El, ScrollSpec, SurfaceFit, TextStyle, Transition, col, el
 use rune::LoopSpec;
 
 pub const ROW: f32 = 46.0;
-const RAIL: f32 = 64.0;
 const TICKS: usize = 18;
 
 pub struct Ink {
@@ -65,7 +64,7 @@ pub fn root(s: &State, _cx: &mut Cx<State>) -> El {
     let k = ink(&s.view);
     let full = s.playing.as_ref().is_some_and(|p| p.stage == Stage::Full);
     let mut root = el().key("root").w_full().h_full().fill(k.bg);
-    root = root.child(row().key("app").w_full().h_full().child(rail(s, &k)).child(main(s, &k)));
+    root = root.child(row().key("app").w_full().h_full().pl(30.0).child(main(s, &k)));
     if let Some(playing) = &s.playing {
         root = root.child(if full { stage(s, playing, &k) } else { mini(playing, &k) });
     }
@@ -74,30 +73,6 @@ pub fn root(s: &State, _cx: &mut Cx<State>) -> El {
         Overlay::Inspect { url } => root.child(card("Stream link", url, "⌘C copy   any key closes", &k)),
         Overlay::None => root,
     }
-}
-
-fn rail(s: &State, k: &Ink) -> El {
-    let section = match s.view.mode.as_str() {
-        "channels" => "3",
-        "replays" => "2",
-        "search" | "replay_sources" => "/",
-        "settings" => ",",
-        "home" | "boot" | "help" => "",
-        "feeds" if s.view.accent == "tv" => "3",
-        _ => "1",
-    };
-    let mark = |glyph: &'static str, label: &'static str| {
-        let on = glyph == section;
-        col().key(format!("rail-{label}")).items_center().gap(5.0).w(RAIL)
-            .child(el().w(if on { 18.0 } else { 0.0 }).h(2.0).radius(1.0).fill(k.accent).opacity(if on { 1.0 } else { 0.0 }).motion(motion::SNAP))
-            .child(text(glyph).font(MONO).color(if on { k.text } else { k.faint }))
-            .child(text(label).font(CAPS).color(if on { k.dim } else { k.faint }))
-    };
-    col().key("rail").w(RAIL).h_full().pt(26.0).pb(22.0).gap(26.0).items_center()
-        .child(logo(k))
-        .child(col().gap(22.0).child(mark("1", "LIVE")).child(mark("2", "REPLAY")).child(mark("3", "TV")).child(mark("/", "FIND")))
-        .child(el().grow(1.0))
-        .child(mark(",", "SET"))
 }
 
 /// Three bars of a signal meter: the app's mark.
@@ -113,6 +88,7 @@ fn main(s: &State, k: &Ink) -> El {
     let crumbs = crumbs(v);
     let header = col().key("header").gap(6.0)
         .child(row().gap(10.0).items_center()
+            .child(logo(k))
             .child(text(crumbs).font(CAPS).color(k.faint))
             .child(el().grow(1.0))
             .child(pulse(v.busy, k)))
@@ -181,16 +157,28 @@ fn listing(s: &State, k: &Ink) -> El {
 
 fn columns_header(columns: &[String], k: &Ink) -> El {
     let name = columns.first().cloned().unwrap_or_default();
-    row().key("columns").h(24.0).pl(22.0).pr(14.0).items_center()
+    row().key("columns").h(24.0).pl(22.0 + NUMBER + 14.0).pr(14.0).items_center()
         .child(text(name).font(CAPS).color(k.faint).grow(1.0))
         .child(text("SIDE").font(CAPS).color(k.faint).w(70.0))
         .child(text("QUALITY").font(CAPS).color(k.faint).w(90.0))
         .child(text("SIGNAL").font(CAPS).color(k.faint).w(TICKS as f32 * 5.0 + 140.0))
 }
 
+const NUMBER: f32 = 12.0;
+
+/// Search types digits into its query, so only its rows go unnumbered.
+fn numbered(v: &View) -> bool {
+    v.mode != "search"
+}
+
 fn line(v: &View, i: usize, r: &Row, selected: bool, k: &Ink) -> El {
     let tone = if !r.pick && r.style == "heading" { k.faint } else if selected { k.text } else { k.mid };
-    let base = row().key(format!("row-{i}")).w_full().h(ROW).pl(22.0).pr(14.0).gap(14.0).items_center();
+    let mut base = row().key(format!("row-{i}")).w_full().h(ROW).pl(22.0).pr(14.0).gap(14.0).items_center();
+    if numbered(v) {
+        // 1 to 9 open these rows (sportscli/screens.py); the number says which.
+        let label = if i < 9 { (i + 1).to_string() } else { String::new() };
+        base = base.child(text(label).font(MONO).color(if selected { k.accent } else { k.faint }).w(NUMBER));
+    }
     if r.style == "heading" {
         return base.child(text(r.text.trim().to_uppercase()).font(CAPS).color(k.faint));
     }
@@ -218,9 +206,7 @@ fn line(v: &View, i: usize, r: &Row, selected: bool, k: &Ink) -> El {
         }
         "home" | "settings" => {
             let cell = |n: usize| r.cells.get(n).cloned().unwrap_or_default();
-            let (key, label, detail) = if v.mode == "home" { (cell(0), cell(1), cell(2)) } else { (String::new(), cell(0), cell(1)) };
-            let mut base = base;
-            if !key.is_empty() { base = base.child(keycap(&key, selected, k)) }
+            let (label, detail) = if v.mode == "home" { (cell(1), cell(2)) } else { (cell(0), cell(1)) };
             base.child(text(label).font(BODY).color(tone).w(if v.mode == "home" { 150.0 } else { 260.0 }))
                 .child(text(detail).font(SMALL).color(if v.mode == "settings" && selected { k.accent } else { k.faint }).truncate())
         }

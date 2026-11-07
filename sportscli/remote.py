@@ -16,7 +16,7 @@ from . import app, breaks
 CODES = {'up': curses.KEY_UP, 'down': curses.KEY_DOWN, 'left': curses.KEY_LEFT, 'right': curses.KEY_RIGHT,
          'enter': 10, 'escape': 27, 'backspace': 127, 'tab': 9, 'ctrl-n': 14, 'ctrl-p': 16, 'ctrl-q': 17,
          'ctrl-r': 18, 'ctrl-u': 21, 'ctrl-x': 24}
-GLOBAL_KEYS = '1 sports   2 replays   3 TV   / search   , settings   ? help   q quit'
+GLOBAL_KEYS = '1-9 open row   / search   , settings   ? help   q quit'
 STATUS = {'live': 'LIVE', 'upcoming': 'UPCOMING', 'redzone-live': 'LIVE', 'redzone': 'CHANNEL'}
 
 

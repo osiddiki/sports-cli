@@ -7,6 +7,7 @@
 The app's whole job is finding a clean signal in a noisy, unreliable world of streams, then getting out of the way. So the design borrows from instruments rather than from streaming services: a dark field, quiet type, and one source of light.
 
 - **One accent per context.** Each league has its own colour (NBA ember, NFL turf, NHL ice, MLB clay, soccer violet, TV electric blue). Home, search, settings and help stay neutral. The accent is the only saturated thing on screen, so it always means "this is where you are".
+- **Row numbers.** The first nine rows of every list carry a small number, lit in the accent on the selected row: `1` to `9` open that row. Search has none, since digits type there.
 - **The beam.** The selection is a 3 pt bar of accent light with a soft wash spreading right. It springs between rows (0.25 s, no bounce) instead of jumping, so the eye follows it.
 - **The signal ruler.** Every source carries 18 ticks. Lit ticks say how well it plays, tall ticks mark sharpness (1080p fills the ruler, 720p most of it), a sweep runs through it while it is checked, and a failed source lies flat with its reason in red. The selected source's ruler lights in the accent. The loading screen of the player is the same ruler, doubled: tuning in.
 - **The pulse.** Live games breathe: a dot that fades between 35% and 100% every 1.6 s, each row a little out of phase. The header dot pulses only while the app works in the background.

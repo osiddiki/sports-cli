@@ -79,7 +79,7 @@ The setup script installs a pinned copy of the [PPV HLS resolver](https://github
 3. Use the arrow keys and `Enter` to open a game, a home or away broadcast list, or a replay. Home and away choices appear when a directory identifies those sides; open the live game to see all sources, including unlabeled ones. Replay listings for the same game are grouped; choose a provider, then a server. In search, `Ctrl-U` clears the query, `Ctrl-R` refreshes, and `Esc` goes back.
 4. Select a stream and press `Enter` to play. Resolution runs in the background while you browse; going back or choosing another stream cancels the pending launch. The stream list shows its provider, broadcast side, listed or measured quality, and availability check. Press `o` to filter by provider, `a` by home or away broadcast, or `f` to filter sources by name. Press `x` to test a source, `v` to show sources that failed their checks, and `r` to refresh.
 5. On macOS, switch between mpv and IINA in Settings (`,`); on Linux, between mpv and Celluloid. The graphical player must be installed first.
-6. To browse archives, press `2` (or choose Replays on Home) and pick a sport. Press `s` in a game, replay or stream list to choose a different sport.
+6. To browse archives, choose Replays on Home (or press `2` there) and pick a sport. Press `s` in a game, replay or stream list to choose a different sport.
 
 Press `?` for the in-app controls and `Ctrl-F` to return to global search from another screen. `Esc` goes back. `Ctrl-X` quits from search; `q` quits from the other lists. The schedule date is in Eastern time; game times are displayed in your machine's local timezone. Completed games are omitted from live schedules but may appear as replays.
 
@@ -115,7 +115,7 @@ The app opens on **Home**: live sports, replays, live TV, search and settings. E
 
 | Key | Action |
 | --- | --- |
-| `1` `2` `3` | Live sports, replays, live TV, from anywhere (inside sports or replays, `1` or `2` changes sport) |
+| `1` to `9` | Open that row of the list: on Home, `1` live sports, `2` replays, `3` live TV; in a sport list, `2` picks the second sport |
 | `/` | Search teams, players, games, replays and TV channels |
 | `,` | Open or close Settings: player, cache, terminal video, backup source, ad breaks, add-on, PPV resolver |
 | `↑` `↓` (or `j` `k`) | Move |
@@ -154,7 +154,7 @@ If resolution, a test, or mpv playback fails, the source is hidden for the curre
 
 ### Live TV
 
-Press `3` from anywhere, choose Live TV on Home, or start with `./sports-cli --tv`. `./sports-cli --list --tv` prints the main channels and their sources. News, the major networks and sports channels (ESPN, FS1, TNT, NFL RedZone, NFL Network) are listed first; NFL RedZone also leads the NFL schedule on Sundays, followed by about 2,000 other channels. Press `f` to filter by name, or find a channel from `/` search, then Enter to see its sources. They come from free playlists listed by FMHY ([iptv-org](https://github.com/iptv-org/iptv), [doms9](https://github.com/doms9/iptv) and [TheAriaTV](https://github.com/aria-tv/aria)) and from DaddyLive's 24/7 channel pages, which are resolved through the local relay when selected. Opening a channel checks its sources in the background; the QUALITY column then shows the measured resolution, and the smoothest, highest-resolution working source moves to the top. Free US feeds of a network can all be down at once; CNBC then falls back to its English CNBC World, UK and Asia feeds, which the source label names. Some free streams work only from the US. Channels play like games, including the backup source; AI ad detection stays off for TV.
+Choose Live TV on Home (`3`), or start with `./sports-cli --tv`. `./sports-cli --list --tv` prints the main channels and their sources. News, the major networks and sports channels (ESPN, FS1, TNT, NFL RedZone, NFL Network) are listed first; NFL RedZone also leads the NFL schedule on Sundays, followed by about 2,000 other channels. Press `f` to filter by name, or find a channel from `/` search, then Enter to see its sources. They come from free playlists listed by FMHY ([iptv-org](https://github.com/iptv-org/iptv), [doms9](https://github.com/doms9/iptv) and [TheAriaTV](https://github.com/aria-tv/aria)) and from DaddyLive's 24/7 channel pages, which are resolved through the local relay when selected. Opening a channel checks its sources in the background; the QUALITY column then shows the measured resolution, and the smoothest, highest-resolution working source moves to the top. Free US feeds of a network can all be down at once; CNBC then falls back to its English CNBC World, UK and Asia feeds, which the source label names. Some free streams work only from the US. Channels play like games, including the backup source; AI ad detection stays off for TV.
 
 ### Backup sources
 

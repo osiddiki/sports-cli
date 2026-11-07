@@ -5,7 +5,7 @@ same thing on every screen:
 
 | Key | Does |
 |---|---|
-| `1` `2` `3` | Live sports, replays, live TV |
+| `1` to `9` | Open that row of the list (a sport, a game, a channel, a source) |
 | `/` | Search teams, players, games and channels |
 | `,` | Settings |
 | Enter, → or `l` | Open or play |
@@ -16,10 +16,10 @@ same thing on every screen:
 | `?` · `q` | Help · quit |
 | `a` | Home or away feed (live game sources) |
 
-Pressing `?` or `,` on its own screen closes it, and `1` or `2` inside that section changes sport.
+Pressing `?` or `,` on its own screen closes it. Esc leads back to Home, where `1`, `2` and `3` open live sports, replays and live TV.
 Any other key that does nothing on a screen says so on the status line.
 
-The OpenTUI front end (`opentui/`) drives a headless copy of this same app (`sportscli/remote.py`), so it follows the chart without a second implementation.
+The OpenTUI front end (`opentui/`) and the native window (`native/`) drive a headless copy of this same app (`sportscli/remote.py`), so it follows the chart without a second implementation.
 
 The statechart lives in `sportscli/screens.py`. `tests/test_screens.py` explores every
 reachable screen state with every key (offline, with sample games, replays and channels)
@@ -43,9 +43,6 @@ stateDiagram-v2
     home --> search: Enter
     home --> settings: Enter
     home --> home: Esc
-    home --> leagues: 1
-    home --> leagues: 2
-    home --> channels: 3
     home --> search: /
     home --> settings: ,
     home --> help: ?
