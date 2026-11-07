@@ -21,6 +21,17 @@ pub struct Ink {
     pub faint: Color,
     pub mid: Color,
     pub accent: Color,
+    /// The on-air light. Red means a game is live and nothing else.
+    pub on_air: Color,
+}
+
+const FIELD: &str = "#0B0D10";
+const PRIMARY: &str = "#ECE9E2";
+const SECONDARY: &str = "#7E848D";
+const ON_AIR: &str = "#FF3B30";
+
+fn srgb(hex: &str) -> Color {
+    rune::color::hex(hex).expect("a palette colour")
 }
 
 pub fn accent(key: &str) -> Color {
@@ -36,26 +47,29 @@ pub fn accent(key: &str) -> Color {
         "ucl" => oklch(0.72, 0.15, 272.0),
         "epl" | "laliga" | "bundesliga" | "seriea" | "ligue1" => oklch(0.72, 0.17, 312.0),
         "tv" => oklch(0.78, 0.13, 232.0),
-        _ => oklch(0.8, 0.09, 285.0),
+        _ => srgb(PRIMARY),
     }
 }
 
 fn ink(v: &View) -> Ink {
     let key = if matches!(v.mode.as_str(), "home" | "boot" | "settings" | "help" | "search") { "" } else { v.accent.as_str() };
+    let (text, secondary) = (srgb(PRIMARY), srgb(SECONDARY));
     Ink {
-        bg: oklch(0.155, 0.012, 268.0),
-        panel: oklch(0.19, 0.014, 268.0),
-        line: oklcha(0.9, 0.01, 268.0, 0.07),
-        text: oklch(0.95, 0.006, 268.0),
-        dim: oklch(0.68, 0.012, 268.0),
-        faint: oklch(0.44, 0.012, 268.0),
-        mid: oklch(0.82, 0.01, 268.0),
+        bg: srgb(FIELD),
+        panel: srgb("#15181C"),
+        line: text.alpha(0.07),
+        text,
+        dim: secondary,
+        faint: secondary.alpha(0.7),
+        mid: text.mix(secondary, 0.3),
         accent: accent(key),
+        on_air: srgb(ON_AIR),
     }
 }
 
 const TITLE: TextStyle = TextStyle::new(26.0, 640.0);
 const BODY: TextStyle = TextStyle::new(14.0, 500.0);
+const LIVE: TextStyle = TextStyle::new(14.0, 640.0);
 const SMALL: TextStyle = TextStyle::new(12.0, 450.0);
 const CAPS: TextStyle = TextStyle::new(10.5, 650.0);
 const MONO: TextStyle = TextStyle::new(11.5, 500.0).mono();
@@ -92,16 +106,38 @@ fn main(s: &State, k: &Ink) -> El {
             .child(text(crumbs).font(CAPS).color(k.faint))
             .child(el().grow(1.0))
             .child(pulse(v.busy, k)))
-        .child(text(if v.mode == "boot" { "Tuning in" } else { v.title.as_str() }).font(TITLE).color(k.text))
+        .child(row().gap(12.0).items_center()
+            .child(if v.mark.is_empty() { el().key("no-mark").w(0.0) } else { mark(&v.mark, k.accent) })
+            .child(text(if v.mode == "boot" { "Tuning in" } else { v.title.as_str() }).font(TITLE).color(k.text)))
         .children(v.info.iter().enumerate().map(|(i, line)| text(line.as_str()).font(if i == 0 { BODY } else { SMALL }).color(if i == 0 { k.dim } else { k.faint }).truncate()));
     let body = col().key(format!("screen-{}", v.mode)).grow(1.0).min_h(0.0).w_full()
         .transition(Transition::offset(14.0 * s.direction, 0.0).combined(Transition::opacity()))
         .child(listing(s, k));
-    col().key("main").grow(1.0).h_full().min_h(0.0).pt(26.0).pr(30.0).pb(14.0).gap(18.0)
+    let main = col().key("main").grow(1.0).h_full().min_h(0.0).pt(26.0).pr(30.0).pb(14.0).gap(18.0)
         .child(header)
         .child(search_line(v, k))
-        .child(body)
-        .child(footer(s, k))
+        .child(body);
+    let main = if v.mode == "home" { main.child(sections(v, k)) } else { main };
+    main.child(footer(s, k))
+}
+
+/// A league's short code in its accent, where lists used to show a row number.
+fn mark(code: &str, color: Color) -> El {
+    el().key("mark").w(30.0).h(18.0).center().radius(5.0).fill(color.alpha(0.14))
+        .child(text(code).font(CAPS).color(color))
+}
+
+/// Home's Replays, Live TV, Search and Settings, on one line under the games.
+fn sections(v: &View, k: &Ink) -> El {
+    let mut line = row().key("sections").gap(8.0).items_center();
+    for (i, r) in v.rows.iter().enumerate().filter(|(_, r)| r.style == "section") {
+        let on = i as i64 == v.selected;
+        line = line.child(el().key(format!("row-{i}")).h(32.0).px(14.0).center().radius(8.0)
+            .fill(if on { k.panel } else { Color::TRANSPARENT }).border(1.0, if on { k.text.alpha(0.35) } else { Color::TRANSPARENT })
+            .on_press(move |s: &mut State| s.press_row(i))
+            .child(text(r.text.as_str()).font(BODY).color(if on { k.text } else { k.dim })));
+    }
+    line
 }
 
 fn crumbs(v: &View) -> String {
@@ -129,7 +165,8 @@ fn search_line(v: &View, k: &Ink) -> El {
 
 fn listing(s: &State, k: &Ink) -> El {
     let v = &s.view;
-    if v.rows.is_empty() {
+    let listed = v.rows.iter().take_while(|r| r.style != "section").count();
+    if listed == 0 {
         let message = if v.mode == "boot" { s.error.clone().unwrap_or_else(|| "Starting the app".into()) } else { v.empty.clone() };
         return col().key("empty").grow(1.0).center().gap(14.0)
             .child(ruler(&Row { style: if v.busy || v.mode == "boot" { "busy".into() } else { "fail".into() }, ..Row::default() }, "", true, k))
@@ -140,7 +177,7 @@ fn listing(s: &State, k: &Ink) -> El {
         list = list.child(columns_header(columns, k));
     }
     let top = if v.columns.is_some() { 24.0 } else { 0.0 };
-    if v.selected >= 0 {
+    if v.selected >= 0 && (v.selected as usize) < listed {
         let y = top + v.selected as f32 * ROW;
         list = list
             .child(el().key("wash").absolute(0.0, y).w_full().h(ROW).radius(12.0)
@@ -149,7 +186,7 @@ fn listing(s: &State, k: &Ink) -> El {
             .child(el().key("beam").absolute(0.0, y + 11.0).w(3.0).h(ROW - 22.0).radius(1.5).fill(k.accent)
                 .shadow(0.0, 12.0, k.accent.alpha(0.7)).motion(motion::SNAP));
     }
-    for (i, r) in v.rows.iter().enumerate() {
+    for (i, r) in v.rows.iter().enumerate().take(listed) {
         list = list.child(line(v, i, r, i as i64 == v.selected, k));
     }
     col().key("scroller").grow(1.0).min_h(0.0).w_full().scroll(ScrollSpec { stick_bottom: false }).scroll_edge_fade(18.0).scroll_margin(ROW).child(list)
@@ -157,18 +194,45 @@ fn listing(s: &State, k: &Ink) -> El {
 
 fn columns_header(columns: &[String], k: &Ink) -> El {
     let name = columns.first().cloned().unwrap_or_default();
-    row().key("columns").h(24.0).pl(22.0 + NUMBER + 14.0).pr(14.0).items_center()
+    row().key("columns").h(24.0).pl(22.0).pr(14.0).items_center()
         .child(text(name).font(CAPS).color(k.faint).grow(1.0))
         .child(text("SIDE").font(CAPS).color(k.faint).w(70.0))
         .child(text("QUALITY").font(CAPS).color(k.faint).w(90.0))
         .child(text("SIGNAL").font(CAPS).color(k.faint).w(TICKS as f32 * 5.0 + 140.0))
 }
 
-const NUMBER: f32 = 12.0;
+/// A game as a list row draws it. Home names each game's league with its mark; a league's own
+/// schedule shows the mark beside its title instead.
+struct GameRow<'a> {
+    mark: Option<(&'a str, Color)>,
+    on_air: bool,
+    when: &'a str,
+    title: &'a str,
+    channels: &'a str,
+}
 
-/// Search types digits into its query, so only its rows go unnumbered.
-fn numbered(v: &View) -> bool {
-    v.mode != "search"
+impl<'a> GameRow<'a> {
+    fn of(v: &View, r: &'a Row) -> GameRow<'a> {
+        let cell = |n: usize| r.cells.get(n).map(String::as_str).unwrap_or("");
+        GameRow {
+            mark: (v.mode == "home").then(|| (cell(0), accent(&r.league))),
+            on_air: r.style == "live",
+            when: cell(1),
+            title: cell(2),
+            channels: &r.detail,
+        }
+    }
+}
+
+/// Live games carry a breathing red light and the brightest title; later games stay quiet with a time.
+fn game(base: El, i: usize, g: &GameRow, selected: bool, k: &Ink) -> El {
+    let base = match g.mark { Some((code, color)) => base.child(mark(code, color)), None => base };
+    let light = el().key("light").size(8.0, 8.0).radius(4.0);
+    let light = if g.on_air { light.fill(k.on_air).shadow(0.0, 10.0, k.on_air.alpha(0.7)).looping(LoopSpec::opacity(1.6, i as f64 * 0.13, 0.35, 1.0)) } else { light };
+    base.child(light)
+        .child(text(g.title).font(if g.on_air { LIVE } else { BODY }).color(if g.on_air || selected { k.text } else { k.mid }).grow(1.0).truncate())
+        .child(text(if g.on_air { "LIVE" } else { g.when }).font(MONO).color(if g.on_air { k.on_air } else { k.dim }).w(96.0))
+        .child(text(g.channels).font(SMALL).color(k.faint).w(170.0).truncate())
 }
 
 fn line(v: &View, i: usize, r: &Row, selected: bool, k: &Ink) -> El {
@@ -176,11 +240,6 @@ fn line(v: &View, i: usize, r: &Row, selected: bool, k: &Ink) -> El {
     let mut base = row().key(format!("row-{i}")).w_full().h(ROW).pl(22.0).pr(14.0).gap(14.0).items_center();
     if r.pick {
         base = base.on_press(move |s: &mut State| s.press_row(i));
-    }
-    if numbered(v) {
-        // 1 to 9 open these rows (sportscli/screens.py); the number says which.
-        let label = if i < 9 { (i + 1).to_string() } else { String::new() };
-        base = base.child(text(label).font(MONO).color(if selected { k.accent } else { k.faint }).w(NUMBER));
     }
     if r.style == "heading" {
         return base.child(text(r.text.trim().to_uppercase()).font(CAPS).color(k.faint));
@@ -197,21 +256,11 @@ fn line(v: &View, i: usize, r: &Row, selected: bool, k: &Ink) -> El {
                     .child(ruler(r, &cell(2), selected, k))
                     .child(text(cell(3)).font(SMALL).color(if r.style == "fail" { oklch(0.68, 0.14, 25.0) } else { k.faint }).truncate()))
         }
-        "games" => {
-            let live = r.style == "live";
+        "games" | "home" => game(base, i, &GameRow::of(v, r), selected, k),
+        "settings" => {
             let cell = |n: usize| r.cells.get(n).cloned().unwrap_or_default();
-            let dot = el().size(8.0, 8.0).radius(4.0);
-            let dot = if live { dot.fill(k.accent).shadow(0.0, 10.0, k.accent.alpha(0.8)).looping(LoopSpec::opacity(1.6, i as f64 * 0.13, 0.35, 1.0)) } else { dot.border(1.5, k.faint) };
-            base.child(dot)
-                .child(text(if live { "LIVE".to_string() } else { cell(1) }).font(MONO).color(if live { k.accent } else { k.faint }).w(118.0))
-                .child(text(cell(2)).font(BODY).color(tone).grow(1.0).truncate())
-                .child(text(r.detail.as_str()).font(SMALL).color(k.faint).truncate())
-        }
-        "home" | "settings" => {
-            let cell = |n: usize| r.cells.get(n).cloned().unwrap_or_default();
-            let (label, detail) = if v.mode == "home" { (cell(1), cell(2)) } else { (cell(0), cell(1)) };
-            base.child(text(label).font(BODY).color(tone).w(if v.mode == "home" { 150.0 } else { 260.0 }))
-                .child(text(detail).font(SMALL).color(if v.mode == "settings" && selected { k.accent } else { k.faint }).truncate())
+            base.child(text(cell(0)).font(BODY).color(tone).w(260.0))
+                .child(text(cell(1)).font(SMALL).color(if selected { k.accent } else { k.faint }).truncate())
         }
         _ => base
             .child(text(r.text.trim()).font(BODY).color(tone).grow(1.0).truncate())
