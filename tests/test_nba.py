@@ -822,6 +822,45 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn(b'"filecode": "abc"', calls[0].data)
         self.assertIsNone(providers.vidara_stream('ordinary page', 'https://video.example/e/abc'))
 
+    def test_relay_download_loads_the_trust_store_on_first_https_request(self):
+        with patch.object(relay.ssl, 'create_default_context', wraps=relay.ssl.create_default_context) as build:
+            pool = relay._Pool()
+
+            class HTTPConn:
+                def __init__(self, host, port=None, timeout=None):
+                    pass
+                def request(self, method, target, headers=None):
+                    pass
+                def getresponse(self):
+                    return SimpleNamespace(read=lambda limit: b'http', will_close=True,
+                                            getheader=lambda name: None, status=200, reason='OK', headers={})
+                def close(self):
+                    pass
+
+            with patch.object(relay.http.client, 'HTTPConnection', HTTPConn):
+                self.assertEqual(pool.request('http://example.com/a.ts', {}, 5, 100), b'http')
+            self.assertEqual(build.call_count, 0)
+
+            seen = []
+
+            class HTTPSConn:
+                def __init__(self, host, port=None, timeout=None, context=None):
+                    seen.append(context)
+                def request(self, method, target, headers=None):
+                    pass
+                def getresponse(self):
+                    return SimpleNamespace(read=lambda limit: b'https', will_close=True,
+                                            getheader=lambda name: None, status=200, reason='OK', headers={})
+                def close(self):
+                    pass
+
+            with patch.object(relay.http.client, 'HTTPSConnection', HTTPSConn):
+                self.assertEqual(pool.request('https://example.com/a.ts', {}, 5, 100), b'https')
+                self.assertEqual(pool.request('https://example.com/b.ts', {}, 5, 100), b'https')
+            self.assertEqual(build.call_count, 1)
+            self.assertIs(seen[0], seen[1])
+            self.assertGreater(len(seen[0].get_ca_certs()), 0)
+
     def test_relay_retries_temporary_errors_but_not_rejected_tokens(self):
         error = urllib.error.HTTPError('https://example.com', 502, 'unavailable', {}, None)
         with patch.object(relay, '_request', side_effect=[error, b'OK']) as fetch, \
