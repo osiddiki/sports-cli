@@ -8,14 +8,14 @@ key Esc => ^ Tonight
 key Tab
 key Enter => ^ Replays: choose a sport
 key Esc => ^ Tonight
-key Down
+key Right
 key Enter => ^ Live TV
 key Esc => ^ Tonight
-key Down
+key Right
 key Enter => ^ Search
 key Esc => ^ Tonight
-key Down
+key Right
 key Enter => ^ Settings
 key Esc => ^ Tonight
-key Up
+key Left
 key Enter => ^ Search

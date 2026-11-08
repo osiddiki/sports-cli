@@ -125,7 +125,7 @@ def view(a):
             if kind == 'heading': rows.append(row(value, style='heading', pick=False))
             elif kind == 'section': rows.append(row(value, style='section', cursor=index))
             else:
-                game = a.tonight[index]
+                game = a.home_rows()[index]
                 rows.append(row(value.title, cells=[value.mark, value.when, value.title], detail=value.channels,
                                 style='live' if value.live else '', cursor=index, league=game.league))
         out['empty'] = "Loading tonight's games" if a.tonight_loading else 'No games tonight. Press s to choose a sport.'

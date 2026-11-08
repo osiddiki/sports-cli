@@ -1,1 +1,7 @@
 *.bat text eol=crlf
+# Left out of the download that installs the app: experimental front ends and developer tooling.
+native/ export-ignore
+opentui/ export-ignore
+verification/ export-ignore
+.claude/ export-ignore
+.github/ export-ignore

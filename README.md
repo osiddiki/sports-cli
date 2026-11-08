@@ -15,6 +15,14 @@ No typing needed:
 
 A window opens, lists what it will install, and waits for you to press Enter. It may ask for your computer's password; nothing appears while you type it, which is normal. When it finishes, Sports CLI opens. From then on, open **Sports CLI** from Applications, Launchpad or Spotlight on a Mac, or from the Start menu on Windows. Double-clicking the installer again updates it.
 
+### Remove it
+
+- **Mac:** download [Uninstall-Sports-CLI-Mac.zip](https://github.com/osiddiki/sports-cli/releases/download/installers/Uninstall-Sports-CLI-Mac.zip), open it, and double-click **Uninstall Sports CLI**. macOS asks you to allow it the same way as the installer.
+- **Windows:** download [Uninstall-Sports-CLI.bat](https://github.com/osiddiki/sports-cli/releases/download/installers/Uninstall-Sports-CLI.bat) and double-click it.
+- **Or**, in a terminal, type `sports --uninstall`.
+
+It lists what it will remove (the app, its launcher, its settings and the optional ad detector) and waits for Enter. mpv and Python stay, since other apps may use them.
+
 ### Install with one command
 
 On a **Mac or Linux** computer, open **Terminal**, paste this line, and press Enter:
@@ -47,6 +55,7 @@ On a Mac or Linux the app goes in `~/.local/share/sports-cli` and the `sports` c
 | --- | --- |
 | `sports` | Start the app |
 | `sports --update` | Download the latest version; your settings stay |
+| `sports --uninstall` | Remove Sports CLI and its settings; asks first |
 | `sports --setup` | Install anything missing again, such as mpv |
 | `sports --setup-ppv` | Add PPV sources: installs Node.js and the PPV resolver |
 | `sports --setup-ads` | Add the local ad detector, including a Python it supports |
@@ -74,12 +83,12 @@ The setup script installs a pinned copy of the [PPV HLS resolver](https://github
 
 ## First run
 
-1. The app opens on Home: tonight's NBA, NFL, NHL, MLB, Premier League and MLS games, live ones first with a red light. Press `Enter` on a game to see its sources, `s` to pick one sport's schedule, `Tab` to reach Replays, Live TV, Search and Settings on the bottom line, or `/` to search across everything. Use `./sports-cli --search` to open directly into search.
+1. The app opens on Home. At the top is a menu: Replays, Live TV, Search and Settings. Below it are tonight's NBA, NFL, NHL, MLB, Premier League and MLS games, live ones first with a red light. Press `Enter` on a game to see its sources, `↑` to reach the menu and `←` `→` to choose in it, `s` to pick one sport's schedule, or `/` to search across everything. Use `./sports-cli --search` to open directly into search.
 2. Try `stephen curry`, `warriors`, `mavs rockets`, `lakers vs blazers oct 27`, or `tamu vs alabama`. Select a player to see their team's games and replays. Team results are grouped with live broadcasts, up to ten recent replays, and upcoming games. Matching team suggestions follow below. The app checks a relevant team's upcoming schedule and, for specific NBA matchups, searches a few older replay pages in the background.
 3. Use the arrow keys and `Enter` to open a game, a home or away broadcast list, or a replay. Home and away choices appear when a directory identifies those sides; open the live game to see all sources, including unlabeled ones. Replay listings for the same game are grouped; choose a provider, then a server. In search, `Ctrl-U` clears the query, `Ctrl-R` refreshes, and `Esc` goes back.
 4. Select a stream and press `Enter` to play. Resolution runs in the background while you browse; going back or choosing another stream cancels the pending launch. The stream list shows its provider, broadcast side, listed or measured quality, and availability check. Press `o` to filter by provider, `a` by home or away broadcast, or `f` to filter sources by name. Press `x` to test a source, `v` to show sources that failed their checks, and `r` to refresh.
 5. On macOS, switch between mpv and IINA in Settings (`,`); on Linux, between mpv and Celluloid. The graphical player must be installed first.
-6. To browse archives, choose Replays on Home's bottom line and pick a sport. Press `s` in a game, replay or stream list to choose a different sport.
+6. To browse archives, choose Replays in Home's menu (or press `1`) and pick a sport. Press `s` in a game, replay or stream list to choose a different sport.
 
 Press `?` for the in-app controls and `Ctrl-F` to return to global search from another screen. `Esc` goes back. `Ctrl-X` quits from search; `q` quits from the other lists. The schedule date is in Eastern time; game times are displayed in your machine's local timezone. Completed games are omitted from live schedules but may appear as replays.
 
@@ -101,7 +110,7 @@ The random part of the link is its password. It stays the same between runs, so 
 
 ## Native window (Mac, experimental)
 
-`native/` runs the same app as a Mac window drawn with Rune, and plays the game inside the window. Each league has its own accent colour, and the selection glides between rows. Every source shows a signal ruler: lit ticks for how well it plays, tall ticks for sharpness. Building it needs [Rust](https://rustup.rs):
+The terminal app is Sports CLI. This window is an experiment: the installers leave it out, so it needs a Git checkout and Rust. `native/` runs the same app as a Mac window drawn with Rune, and plays the game inside the window. Each league has its own accent colour, and the selection glides between rows. Every source shows a signal ruler: lit ticks for how well it plays, tall ticks for sharpness. Building it needs [Rust](https://rustup.rs):
 
 ```sh
 cd native && cargo run --release
@@ -111,12 +120,13 @@ The keys are the terminal app's. On the player, Space pauses, `m` mutes, Esc or 
 
 ## Controls
 
-The app opens on **Home**: tonight's games across leagues, each marked with its league, then Replays, Live TV, Search and Settings on one line. Every key means the same thing on every screen, and each screen's footer lists the keys that work there.
+The app opens on **Home**: a menu of Replays, Live TV, Search and Settings at the top, then tonight's games across leagues, each marked with its league. Every key means the same thing on every screen, and each screen's footer lists the keys that work there.
 
 | Key | Action |
 | --- | --- |
 | `1` to `9` | Open that row of the list, counted from the top; the numbers are not drawn |
-| `Tab` | On Home, move between the games and the bottom line |
+| `↑` from the first game, `←` `→` | On Home, reach the menu and choose in it; `1` to `4` open Replays, Live TV, Search, Settings |
+| `Tab` | On Home, jump between the menu and the games |
 | `/` | Search teams, players, games, replays and TV channels |
 | `,` | Open or close Settings: player, cache, terminal video, backup source, ad breaks, add-on, PPV resolver |
 | `↑` `↓` (or `j` `k`) | Move |
@@ -155,7 +165,7 @@ If resolution, a test, or mpv playback fails, the source is hidden for the curre
 
 ### Live TV
 
-Choose Live TV on Home's bottom line, or start with `./sports-cli --tv`. `./sports-cli --list --tv` prints the main channels and their sources. News, the major networks and sports channels (ESPN, FS1, TNT, NFL RedZone, NFL Network) are listed first; NFL RedZone also leads the NFL schedule on Sundays, followed by about 2,000 other channels. Press `f` to filter by name, or find a channel from `/` search, then Enter to see its sources. They come from free playlists listed by FMHY ([iptv-org](https://github.com/iptv-org/iptv), [doms9](https://github.com/doms9/iptv) and [TheAriaTV](https://github.com/aria-tv/aria)) and from DaddyLive's 24/7 channel pages, which are resolved through the local relay when selected. Opening a channel checks its sources in the background; the QUALITY column then shows the measured resolution, and the smoothest, highest-resolution working source moves to the top. Free US feeds of a network can all be down at once; CNBC then falls back to its English CNBC World, UK and Asia feeds, which the source label names. Some free streams work only from the US. Channels play like games, including the backup source; AI ad detection stays off for TV.
+Choose Live TV in Home's menu (or press `2`), or start with `./sports-cli --tv`. `./sports-cli --list --tv` prints the main channels and their sources. News, the major networks and sports channels (ESPN, FS1, TNT, NFL RedZone, NFL Network) are listed first; NFL RedZone also leads the NFL schedule on Sundays, followed by about 2,000 other channels. Press `f` to filter by name, or find a channel from `/` search, then Enter to see its sources. They come from free playlists listed by FMHY ([iptv-org](https://github.com/iptv-org/iptv), [doms9](https://github.com/doms9/iptv) and [TheAriaTV](https://github.com/aria-tv/aria)) and from DaddyLive's 24/7 channel pages, which are resolved through the local relay when selected. Opening a channel checks its sources in the background; the QUALITY column then shows the measured resolution, and the smoothest, highest-resolution working source moves to the top. Free US feeds of a network can all be down at once; CNBC then falls back to its English CNBC World, UK and Asia feeds, which the source label names. Some free streams work only from the US. Channels play like games, including the backup source; AI ad detection stays off for TV.
 
 ### Backup sources
 

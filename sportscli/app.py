@@ -65,7 +65,7 @@ HOME_ITEMS = [('replays', 'Replays'), ('tv', 'Live TV'), ('search', 'Search'), (
 
 HELP_LINES = [
     'EVERYWHERE     1-9 open that row   / search   , settings   ? help   q quit',
-    'HOME           Enter: watch the selected game    Tab: the sections line    s: one sport\'s schedule    r: refresh',
+    'HOME           Up: the menu (Replays, Live TV, Search, Settings), Left/Right to choose    1-4 open them    Tab: menu or games    s: one sport\'s schedule',
     'MOVE           Up/Down or j/k: select    Enter, Right or l: open    Esc, Left, h or Backspace: back',
     'LISTS          f: filter this list    r: refresh    s: change sport (games and replays)',
     'SCHEDULE       [ and ]: previous or next day',
@@ -844,6 +844,16 @@ def quick_probe_feed(feed):
         if temporary_relay: temporary_relay.close()
 
 
+def fit_words(text, width):
+    """Text cut to width at a comma or space, ending in an ellipsis, so no name is cut in half."""
+    if len(text) <= width: return text
+    if width < 2: return ''
+    cut = text[:width-1]
+    for mark in (', ', ' '):
+        if mark in cut: cut = cut[:cut.rindex(mark)]; break
+    return cut.rstrip(' ,(') + '…'
+
+
 class App:
     def __init__(self, screen, config, *, ad_mute_enabled=False, ai_ad_mute_enabled=False, ai_ad_observe_enabled=False):
         self.scr, self.config = screen, config
@@ -1185,30 +1195,33 @@ class App:
         elif self.mode == 'home':
             actions = self.home_actions()
             lines = self.home_lines()
+            sections = [line for line in lines if line[1] == 'section']
             listed = [line for line in lines if line[1] != 'section']
-            nav_y = h-4-len(self.action_lines(actions))
-            capacity = max(1, nav_y-4)
-            # A section is not one of these lines. Keep the scroll the games were at, or the highlight jumps to the top.
+            x = 2
+            for index, _, label in sections:
+                selected = index == self.home_index
+                self.put(3, x, f' {label} ', curses.A_REVERSE if selected else curses.A_BOLD); x += len(label) + 4
+            top = 5
+            capacity = max(1, h-4-len(self.action_lines(actions))-top)
+            # The sections are not among these lines. Keep the scroll the games were at, or the games jump to the top.
             cursor = next((i for i, (index, _, _) in enumerate(listed) if index == self.home_index), None)
             if cursor is None: start = self.home_scroll
             else: start = self.home_scroll = max(0, cursor-capacity+1)
             start = min(start, max(0, len(listed)-capacity))
-            title_width = max(12, min(40, w-34))
-            for y, (index, kind, value) in enumerate(listed[start:start+capacity], 3):
+            longest = max((len(value.title) for _, kind, value in listed if kind == 'game'), default=12)
+            title_width = max(12, min(longest, w-34))
+            for y, (index, kind, value) in enumerate(listed[start:start+capacity], top):
                 if kind == 'heading': self.put(y, 2, value, curses.A_DIM); continue
                 selected = index == self.home_index
                 attr = curses.A_REVERSE if selected else curses.A_BOLD if value.live else 0
-                self.put(y, 2, f'{">" if selected else " "} {value.mark:<4}   {value.title:<{title_width}.{title_width}}  '
+                title = value.title if len(value.title) <= title_width else value.title[:title_width-1] + '…'
+                self.put(y, 2, f'{">" if selected else " "} {value.mark:<4}   {title:<{title_width}}  '
                                f'{"LIVE" if value.live else value.when:>8}', attr)
                 if value.live: self.put(y, 9, '●', self.on_air | (curses.A_REVERSE if selected else 0))
-                self.put(y, title_width+23, value.channels, attr if selected else curses.A_DIM)
+                self.put(y, title_width+23, fit_words(value.channels, w-title_width-24), attr if selected else curses.A_DIM)
             if not listed:
-                self.put(4, 2, self.spinner() + " Loading tonight's games" if self.tonight_loading else
+                self.put(top, 2, self.spinner() + " Loading tonight's games" if self.tonight_loading else
                          'No games tonight. Press s to choose a sport.')
-            x = 2
-            for index, kind, label in lines:
-                if kind == 'section':
-                    self.put(nav_y, x, f' {label} ', curses.A_REVERSE if index == self.home_index else 0); x += len(label) + 4
             self.footer(actions)
         elif self.mode == 'settings':
             for y, (label, value, _) in enumerate(self.settings_rows(), 3):
@@ -1430,22 +1443,35 @@ class App:
         self.message = f'{len(self.games)} games shown. Select one.'
 
     def home_rows(self):
-        """What Home's selection moves over: tonight's games, then the sections."""
-        return [*self.tonight, *HOME_ITEMS]
+        """What Home's selection moves over: the sections, so 1 to 4 always open them, then tonight's games."""
+        return [*HOME_ITEMS, *self.tonight]
+
+    def first_game_row(self):
+        return len(HOME_ITEMS) if self.tonight else 0
 
     def home_lines(self):
-        """Home top to bottom as (cursor, kind, value): a 'heading' (no cursor) before the live and the later
-        games, each 'game' as a GameLine, then each 'section' label, which share one line at the bottom."""
-        lines, heading = [], None
-        for index, game in enumerate(self.tonight):
+        """Home top to bottom as (cursor, kind, value): each 'section' label, then a 'heading' (no cursor)
+        before the live and the later games, each 'game' as a GameLine."""
+        lines, heading = [(index, 'section', label) for index, (_, label) in enumerate(HOME_ITEMS)], None
+        for index, game in enumerate(self.tonight, len(HOME_ITEMS)):
             line = GameLine.of(game)
             group = 'LIVE' if line.live else 'LATER TONIGHT'
             if group != heading: heading = group; lines.append((None, 'heading', heading))
             lines.append((index, 'game', line))
-        return lines + [(len(self.tonight) + index, 'section', label) for index, (_, label) in enumerate(HOME_ITEMS)]
+        return lines
+
+    def home_menu_move(self, up):
+        """Home's menu is one row: Up from the first game reaches Replays, Down from the menu the first game."""
+        on_menu, first = self.home_index < len(HOME_ITEMS), self.first_game_row()
+        if on_menu and (up or first == 0): return True
+        if on_menu: self.select(first); return True
+        if up and self.home_index == first: self.select(0); return True
+        return False
 
     def home_actions(self):
-        return ('Enter watch' if self.home_index < len(self.tonight) else 'Enter open') + '   Tab sections   s sport   r refresh'
+        if self.home_index < len(HOME_ITEMS):
+            return f'Enter open {HOME_ITEMS[self.home_index][1]}   ←→ choose   ↓ games'
+        return 'Enter watch   ↑ menu   s one sport   r refresh'
 
     def refresh_tonight(self):
         """Load Home's games in the background; poll_tonight applies the newest answer."""
@@ -1459,9 +1485,10 @@ class App:
         if generation != self.tonight_generation: return
         chosen = self.home_rows()[self.home_index]
         self.tonight, self.tonight_loading = games, False
-        if not self.home_touched: self.home_index = 0
-        elif chosen in HOME_ITEMS: self.home_index = len(games) + HOME_ITEMS.index(chosen)
-        else: self.home_index = next((i for i, game in enumerate(games) if (game.league, game.id) == (chosen.league, chosen.id)), 0)
+        if not self.home_touched: self.home_index = self.first_game_row()
+        elif chosen not in HOME_ITEMS:
+            self.home_index = next((i for i, game in enumerate(games, len(HOME_ITEMS)) if (game.league, game.id) == (chosen.league, chosen.id)),
+                                   self.first_game_row())
         if self.mode == 'home':
             self.message = (f'Could not load {", ".join(MARKS[league] for league in failed)}. Press r to retry.' if failed
                             else self.ARRIVAL['home'])
@@ -2660,7 +2687,11 @@ class App:
         elif key == ord('/'): self.open_search()
         elif key == ord(','): self.open_settings()
         elif key == ord('s') and self.mode == 'home': self.open_section('sports')
-        elif key == 9 and self.mode == 'home': self.select(0 if self.home_index >= len(self.tonight) else len(self.tonight))
+        elif key == 9 and self.mode == 'home': self.select(0 if self.home_index >= len(HOME_ITEMS) else self.first_game_row())
+        elif key in (curses.KEY_LEFT, ord('h'), curses.KEY_RIGHT, ord('l')) and self.mode == 'home' and self.home_index < len(HOME_ITEMS):
+            self.home_index = min(len(HOME_ITEMS)-1, max(0, self.home_index + (1 if key in (curses.KEY_RIGHT, ord('l')) else -1)))
+        elif key in (curses.KEY_UP, ord('k'), curses.KEY_DOWN, ord('j')) and self.mode == 'home' and self.home_menu_move(key in (curses.KEY_UP, ord('k'))):
+            pass
         elif key == ord('s') and (self.mode in ('games', 'replays') or self.mode == 'feeds' and self.feed_context != 'tv'): self.pick_sport()
         elif key in (curses.KEY_UP, ord('k')): self.move(-1)
         elif key in (curses.KEY_DOWN, ord('j')): self.move(1)

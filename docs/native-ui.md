@@ -46,7 +46,7 @@ The screens take the terminal app's keys unchanged; the footer lists them for ea
 | | Shift Left / Shift Right | jump a minute |
 | | [ / ] | previous or next period |
 | | drag the bar | move through the replay |
-| Browsing with a corner player | Tab | full size, except on Home, where Tab moves to the sections line |
+| Browsing with a corner player | Tab | full size, except on Home, where Tab jumps between the menu and the games |
 | | ⌘. | stop |
 | Prompt | Enter / Esc | answer / cancel (an empty answer clears) |
 | Stream link | ⌘C | copy |
@@ -61,7 +61,7 @@ One worker thread sends every request in the order you made it, and Python numbe
 
 ```sh
 cd native && cargo run --release
-native/verify.sh      # headless: Tab to the sections, Live TV, play the second channel, corner player; needs network
+native/verify.sh      # headless: Tab to the menu, Live TV, play the second channel, corner player; needs network
 ```
 
 Headless runs (`--snap`, `--script`, `--tree`) use Rune's virtual clock. `SPORTS_NATIVE_SYNC=1` holds that clock to the wall clock and runs the main run loop where AVPlayer delivers its callbacks, so scripted runs see real loading and real frames. `SPORTS_NATIVE_LOG=1` prints the player's frame counts.

@@ -47,7 +47,7 @@ class Screen:
 
 def make_app(factory=None):
     app = factory() if factory else nba.App(Screen(), {})
-    app.calls = []; app.tonight = list(GAMES)
+    app.calls = []; app.tonight = list(GAMES); app.home_index = app.first_game_row()
     record = lambda name: (lambda *args, **kwargs: app.calls.append(name))
     def refresh_games(): app.games = list(GAMES); app.all_games = list(GAMES); app.loading_games = False; app.calls.append('refresh_games')
     def refresh_replays(): app.replays = list(REPLAYS); app.replay_pending = 0; app.calls.append('refresh_replays')
@@ -186,7 +186,7 @@ class ScreenChartTests(unittest.TestCase):
         problems = []
         words = {'Enter': ['Enter'], 'Esc': ['Esc'], 'Space': ['Space'], 'Tab': ['Tab'], 'Ctrl-F': ['Ctrl-F'],
                  'Ctrl-X': ['Ctrl-X'], '^X': ['Ctrl-X'], 'Up/Down': ['Down'], '↑↓': ['Down'], 'j/k': ['Down'],
-                 'Ctrl-U': [], '^U': [], 'Type': []}
+                 'Ctrl-U': [], '^U': [], 'Type': [], '↑': ['Up'], '↓': ['Down'], '←→': ['Right']}
         for before, path in self.paths.items():
             app = self.replay(path); app.render()
             rows, _ = app.scr.getmaxyx()

@@ -332,6 +332,9 @@ fn poll(s: &mut State, now: f64, tx: &mut Tx) -> bool {
 
 fn keys_for_row(view: &View, index: usize) -> Vec<String> {
     if !view.rows.get(index).is_some_and(|row| row.pick) { return Vec::new() }
+    if view.rows[index].style == "section" {
+        return vec![(list_cursor(view, index) + 1).to_string()];
+    }
     let target = list_cursor(view, index);
     let current = if view.selected < 0 { 0 } else { list_cursor(view, view.selected.max(0) as usize) };
     let mut keys = Vec::new();
@@ -567,7 +570,7 @@ mod click {
         assert_eq!(opened_row("channels", &slots, 3, &sent), Some(1), "a pointer above the highlight selects that row, keys were {sent:?}");
     }
 
-    /// Home as sportscli/remote.py describes it: headings, tonight's games, then the sections.
+    /// Home as sportscli/remote.py describes it: the sections, then headings and tonight's games.
     fn tonight() -> State {
         let heading = |text: &str| Row { text: text.into(), style: "heading".into(), ..Row::default() };
         let game = |cursor: i64, title: &str, when: &str, style: &str, league: &str| Row {
@@ -577,10 +580,10 @@ mod click {
         let section = |cursor: i64, label: &str| Row { text: label.into(), style: "section".into(), pick: true, cursor: Some(cursor), ..Row::default() };
         let mut state = init();
         state.view = View {
-            mode: "home".into(), title: "Tonight".into(), selected: 1,
-            rows: vec![heading("LIVE"), game(0, "Nuggets at Pacers", "7:00 PM", "live", "nba"), heading("LATER TONIGHT"),
-                       game(1, "Maple Leafs at Bruins", "7:30 PM", "", "nhl"), game(2, "Nets at Hawks", "8:00 PM", "", "nba"),
-                       section(3, "Replays"), section(4, "Live TV"), section(5, "Search"), section(6, "Settings")],
+            mode: "home".into(), title: "Tonight".into(), selected: 5,
+            rows: vec![section(0, "Replays"), section(1, "Live TV"), section(2, "Search"), section(3, "Settings"),
+                       heading("LIVE"), game(4, "Nuggets at Pacers", "7:00 PM", "live", "nba"), heading("LATER TONIGHT"),
+                       game(5, "Maple Leafs at Bruins", "7:30 PM", "", "nhl"), game(6, "Nets at Hawks", "8:00 PM", "", "nba")],
             ..View::default()
         };
         state
@@ -608,8 +611,8 @@ mod click {
 
     #[test]
     fn a_pointer_on_a_section_opens_it() {
-        let sent = tap(tonight(), "row-6");
-        assert_eq!(sent, ["down", "down", "down", "down", "enter"], "Live TV is four moves below the Nuggets game");
+        let sent = tap(tonight(), "row-1");
+        assert_eq!(sent, ["2"], "a click on Live TV opens it by its number");
     }
 
     #[test]

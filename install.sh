@@ -161,6 +161,7 @@ case "\${1:-}" in
   --setup) exec sh "$APP/install.sh" --yes ;;
   --setup-ppv) exec sh "$APP/install.sh" --yes --ppv ;;
   --setup-ads) exec sh "$APP/install.sh" --yes --ads ;;
+  --uninstall) exec sh "$APP/uninstall.sh" ;;
 esac
 PATH="/opt/homebrew/bin:/usr/local/bin:\$PATH"
 SPORTS_CLI_COMMAND=sports
@@ -210,4 +211,4 @@ if [ "$OS" = mac ]; then echo 'Open "Sports CLI" from Applications, Launchpad or
 elif [ "$OS" = linux ]; then echo 'Open "Sports CLI" from your app menu.'
 fi
 if [ "$on_path" = 1 ]; then echo 'Or type: sports'; else echo 'Or open a new Terminal window and type: sports'; fi
-echo 'Later: "sports --update" updates it, "sports --setup-ppv" adds PPV sources, "sports --setup-ads" adds ad detection.'
+echo 'Later: "sports --update" updates it, "sports --uninstall" removes it, "sports --setup-ppv" adds PPV sources, "sports --setup-ads" adds ad detection.'

@@ -1,4 +1,5 @@
 """The headless app behind the OpenTUI front end takes the same keys through the same statechart."""
+import curses
 import datetime as dt
 import queue
 import threading
@@ -51,10 +52,10 @@ class RemoteTests(unittest.TestCase):
                     self.assertIn({'type': 'quit'}, answer['events'])
                     break
 
-    def test_home_is_tonights_games_then_the_sections(self):
+    def test_home_is_the_sections_then_tonights_games(self):
         view = self.remote.view()
         self.assertEqual((view['mode'], view['title']), ('home', 'Tonight'))
-        self.assertEqual([row['text'] for row in view['rows'] if row['pick']], [game.title for game in GAMES] + SECTIONS)
+        self.assertEqual([row['text'] for row in view['rows'] if row['pick']], SECTIONS + [game.title for game in GAMES])
         self.assertEqual([row['text'] for row in view['rows'] if not row['pick']], ['LIVE', 'LATER TONIGHT'])
         self.assertEqual(view['rows'][view['selected']]['text'], GAMES[0].title)
         live, later = (row for row in view['rows'] if row['league'])
@@ -68,7 +69,7 @@ class RemoteTests(unittest.TestCase):
         games = [line for line in lines if any(game.title in line for game in GAMES)]
         self.assertEqual([line.split()[:2] for line in games], [['>', 'NBA'], ['NBA', GAMES[1].title.split()[0]]])
         self.assertIn('●', games[0])
-        self.assertTrue(any(all(label in line for label in SECTIONS) for line in lines), lines)
+        self.assertEqual(lines[2].split(), ['Replays', 'Live', 'TV', 'Search', 'Settings'], 'the sections head Home, above every game')
         self.assertFalse(any(line.lstrip('> ')[:1].isdigit() for line in lines), lines)
 
     def test_schedule_and_sources_describe_what_the_terminal_draws(self):
@@ -81,7 +82,7 @@ class RemoteTests(unittest.TestCase):
         self.assertIn('Enter play', view['actions'])
 
     def test_keys_that_ask_a_question_become_a_prompt_the_front_end_answers(self):
-        view = self.remote.key('4')
+        view = self.remote.key('2')
         self.assertEqual(len(view['rows']), len(CHANNELS))
         asked = self.remote.key('f')['events']
         self.assertEqual([(event['type'], event['key']) for event in asked], [('prompt', 'f')])
@@ -126,16 +127,34 @@ class HomeTonightTests(unittest.TestCase):
         start = dt.datetime(2026, 11, 7, 23, tzinfo=dt.timezone.utc)
         app = nba.App(Screen(), {})
         app.tonight = [nba.Game(str(i), f'Match {i:02d}', start, 'Home', 'Away', 'Home', 'Away') for i in range(30)]
-        app.home_index = 29
+        app.home_index = len(nba.HOME_ITEMS) + 29
         app.render()
         on_game = '\n'.join(app.scr.text[y] for y in sorted(app.scr.text))
         self.assertIn('Match 29', on_game)
         self.assertNotIn('Match 00', on_game)
-        app.home_index = len(app.tonight)
+        app.home_index = 0
         app.render()
         on_section = '\n'.join(app.scr.text[y] for y in sorted(app.scr.text))
+        self.assertIn('Replays', on_section)
         self.assertIn('Match 29', on_section)
         self.assertNotIn('Match 00', on_section)
+
+    def test_the_menu_is_one_row_above_the_games(self):
+        app = nba.App(Screen(), {})
+        app.tonight = list(GAMES); app.home_index = app.first_game_row()
+        walk = []
+        for key in (curses.KEY_UP, curses.KEY_RIGHT, curses.KEY_RIGHT, curses.KEY_UP, curses.KEY_LEFT, curses.KEY_DOWN):
+            app.handle_key(key, None); walk.append(app.home_rows()[app.home_index])
+        self.assertEqual([item[1] if item in nba.HOME_ITEMS else item.title for item in walk],
+                         ['Replays', 'Live TV', 'Search', 'Search', 'Live TV', GAMES[0].title])
+        app.handle_key(curses.KEY_UP, None); app.handle_key(curses.KEY_RIGHT, None); app.render()
+        footer = '\n'.join(app.scr.text.values())
+        self.assertIn('Enter open Live TV', footer)
+        self.assertEqual(app.mode, 'home')
+
+    def test_a_long_channel_list_ends_at_a_whole_name(self):
+        self.assertEqual(nba.fit_words('DAZN MIN (Home), KJZZ-TV (Away), Jazz+ (Away)', 24), 'DAZN MIN (Home)…')
+        self.assertEqual(nba.fit_words('CBS', 24), 'CBS')
 
     def test_a_successful_reload_clears_a_failed_league(self):
         app = nba.App(Screen(), {})

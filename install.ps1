@@ -129,6 +129,7 @@ if "%~1"=="--update" ( powershell -NoProfile -ExecutionPolicy Bypass -Command "i
 if "%~1"=="--setup" ( powershell -NoProfile -ExecutionPolicy Bypass -File "$installer" -Yes & exit /b )
 if "%~1"=="--setup-ppv" ( powershell -NoProfile -ExecutionPolicy Bypass -File "$installer" -Yes -Ppv & exit /b )
 if "%~1"=="--setup-ads" ( powershell -NoProfile -ExecutionPolicy Bypass -File "$installer" -Yes -Ads & exit /b )
+if "%~1"=="--uninstall" ( powershell -NoProfile -ExecutionPolicy Bypass -File "$App\uninstall.ps1" & exit /b )
 "$Python" "$App\sports-cli" %*
 "@
 Set-Content -Path (Join-Path $Bin 'sports.cmd') -Value $launcher -Encoding ASCII
@@ -156,4 +157,4 @@ if ($Ads) {
 
 Say 'Sports CLI is ready'
 Write-Host 'Open "Sports CLI" from the Start menu, or open a new terminal window and type: sports'
-Write-Host 'Later: "sports --update" updates it, "sports --setup-ppv" adds PPV sources, "sports --setup-ads" adds ad detection.'
+Write-Host 'Later: "sports --update" updates it, "sports --uninstall" removes it, "sports --setup-ppv" adds PPV sources, "sports --setup-ads" adds ad detection.'

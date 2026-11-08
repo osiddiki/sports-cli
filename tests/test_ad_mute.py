@@ -251,10 +251,10 @@ class SettingsAdMuteTests(unittest.TestCase):
             app.settings_index = [name for name, _, _ in app.settings_rows()].index('Ad detector')
             with Capture() as terminal:
                 app.handle_key(10, '\n')
+            app.render()
         self.assertNotIn(b'OUT-MARKER', terminal.captured)
         self.assertNotIn(b'ERR-MARKER', terminal.captured)
         self.assertEqual(app.message, failure)
-        app.render()
         drawn = '\n'.join(app.scr.text[y] for y in sorted(app.scr.text))
         self.assertIn(failure, drawn)
         self.assertIn('not installed', drawn)

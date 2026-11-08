@@ -1,5 +1,7 @@
+import os
 import pathlib
 import subprocess
+import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -28,6 +30,36 @@ class DoubleClickInstallerTests(unittest.TestCase):
         self.assertIn('Applications/Sports CLI.app', (ROOT / 'install.sh').read_text())
         self.assertIn('sports-cli.desktop', (ROOT / 'install.sh').read_text())
         self.assertIn("'Sports CLI.lnk'", (ROOT / 'install.ps1').read_text())
+
+
+class UninstallTests(unittest.TestCase):
+    def test_uninstall_removes_what_the_installer_made_and_keeps_the_rest_of_the_profile(self):
+        with tempfile.TemporaryDirectory() as home:
+            home = pathlib.Path(home)
+            made = [home / '.local/share/sports-cli/sports-cli', home / '.local/bin/sports',
+                    home / 'Applications/Sports CLI.app/Contents/Info.plist', home / '.local/share/applications/sports-cli.desktop',
+                    home / '.config/nba-tui/config.json', home / '.cache/sports-live/checks.json',
+                    home / '.local/share/sports-live/ad-mute/model.tflite']
+            for path in made:
+                path.parent.mkdir(parents=True, exist_ok=True); path.write_text('x')
+            mine = home / '.config/other-app/settings'; mine.parent.mkdir(parents=True); mine.write_text('keep')
+            (home / '.zprofile').write_text('export A=1\n\n# Added by the Sports CLI installer\nexport PATH="$HOME/.local/bin:$PATH"\nexport B=2\n')
+            env = {'HOME': str(home), 'PATH': os.environ['PATH']}
+            done = subprocess.run(['sh', str(ROOT / 'uninstall.sh'), '--yes'], env=env, capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual([path for path in made if path.exists()], [])
+            self.assertTrue(mine.exists())
+            self.assertEqual((home / '.zprofile').read_text(), 'export A=1\n\nexport B=2\n')
+            again = subprocess.run(['sh', str(ROOT / 'uninstall.sh'), '--yes'], env=env, capture_output=True, text=True)
+            self.assertIn('not installed', again.stdout)
+
+    def test_every_launcher_the_installers_add_is_one_uninstall_removes(self):
+        self.assertIn('--uninstall) exec sh "$APP/uninstall.sh"', (ROOT / 'install.sh').read_text())
+        self.assertIn('"--uninstall"', (ROOT / 'install.ps1').read_text())
+        for name in ('Applications/Sports CLI.app', 'sports-cli.desktop'):
+            self.assertIn(name, (ROOT / 'uninstall.sh').read_text())
+        self.assertIn("'Sports CLI.lnk'", (ROOT / 'uninstall.ps1').read_text())
+        self.assertNotIn(b'\n', (ROOT / 'installers/Uninstall Sports CLI.bat').read_bytes().replace(b'\r\n', b''))
 
 
 if __name__ == '__main__':

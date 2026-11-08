@@ -115,10 +115,9 @@ fn main(s: &State, k: &Ink) -> El {
         .child(listing(s, k));
     let main = col().key("main").grow(1.0).h_full().min_h(0.0).pt(26.0).pr(30.0).pb(14.0).gap(18.0)
         .child(header)
-        .child(search_line(v, k))
-        .child(body);
+        .child(search_line(v, k));
     let main = if v.mode == "home" { main.child(sections(v, k)) } else { main };
-    main.child(footer(s, k))
+    main.child(body).child(footer(s, k))
 }
 
 /// A league's short code in its accent, where lists used to show a row number.
@@ -127,15 +126,15 @@ fn mark(code: &str, color: Color) -> El {
         .child(text(code).font(CAPS).color(color))
 }
 
-/// Home's Replays, Live TV, Search and Settings, on one line under the games.
+/// Home's Replays, Live TV, Search and Settings, on one line above the games, so none is ever scrolled away.
 fn sections(v: &View, k: &Ink) -> El {
     let mut line = row().key("sections").gap(8.0).items_center();
     for (i, r) in v.rows.iter().enumerate().filter(|(_, r)| r.style == "section") {
         let on = i as i64 == v.selected;
         line = line.child(el().key(format!("row-{i}")).h(32.0).px(14.0).center().radius(8.0)
-            .fill(if on { k.panel } else { Color::TRANSPARENT }).border(1.0, if on { k.text.alpha(0.35) } else { Color::TRANSPARENT })
+            .fill(if on { k.panel } else { Color::TRANSPARENT }).border(1.0, if on { k.text.alpha(0.35) } else { k.line })
             .on_press(move |s: &mut State| s.press_row(i))
-            .child(text(r.text.as_str()).font(BODY).color(if on { k.text } else { k.dim })));
+            .child(text(r.text.as_str()).font(BODY).color(if on { k.text } else { k.mid })));
     }
     line
 }
@@ -165,8 +164,8 @@ fn search_line(v: &View, k: &Ink) -> El {
 
 fn listing(s: &State, k: &Ink) -> El {
     let v = &s.view;
-    let listed = v.rows.iter().take_while(|r| r.style != "section").count();
-    if listed == 0 {
+    let listed: Vec<(usize, &Row)> = v.rows.iter().enumerate().filter(|(_, r)| r.style != "section").collect();
+    if listed.is_empty() {
         let message = if v.mode == "boot" { s.error.clone().unwrap_or_else(|| "Starting the app".into()) } else { v.empty.clone() };
         return col().key("empty").grow(1.0).center().gap(14.0)
             .child(ruler(&Row { style: if v.busy || v.mode == "boot" { "busy".into() } else { "fail".into() }, ..Row::default() }, "", true, k))
@@ -177,8 +176,8 @@ fn listing(s: &State, k: &Ink) -> El {
         list = list.child(columns_header(columns, k));
     }
     let top = if v.columns.is_some() { 24.0 } else { 0.0 };
-    if v.selected >= 0 && (v.selected as usize) < listed {
-        let y = top + v.selected as f32 * ROW;
+    if let Some(at) = listed.iter().position(|(i, _)| *i as i64 == v.selected) {
+        let y = top + at as f32 * ROW;
         list = list
             .child(el().key("wash").absolute(0.0, y).w_full().h(ROW).radius(12.0)
                 .linear_gradient(std::f32::consts::FRAC_PI_2, [(0.0, k.accent.alpha(0.17)), (0.55, k.accent.alpha(0.03)), (1.0, k.accent.alpha(0.0))])
@@ -186,7 +185,7 @@ fn listing(s: &State, k: &Ink) -> El {
             .child(el().key("beam").absolute(0.0, y + 11.0).w(3.0).h(ROW - 22.0).radius(1.5).fill(k.accent)
                 .shadow(0.0, 12.0, k.accent.alpha(0.7)).motion(motion::SNAP));
     }
-    for (i, r) in v.rows.iter().enumerate().take(listed) {
+    for (i, r) in listed {
         list = list.child(line(v, i, r, i as i64 == v.selected, k));
     }
     col().key("scroller").grow(1.0).min_h(0.0).w_full().scroll(ScrollSpec { stick_bottom: false }).scroll_edge_fade(18.0).scroll_margin(ROW).child(list)

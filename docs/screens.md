@@ -1,7 +1,8 @@
 # Screens
 
-The app opens on Home: tonight's games across leagues, live ones first, with Replays, Live TV,
-Search and Settings on one line at the bottom. Keys mean the same thing on every screen:
+The app opens on Home: a menu of Replays, Live TV, Search and Settings on one line at the top, then
+tonight's games across leagues, live ones first. Up from the first game reaches the menu, Left and Right
+move along it, and Down goes back to the games. Keys mean the same thing on every screen:
 
 | Key | Does |
 |---|---|
@@ -11,7 +12,7 @@ Search and Settings on one line at the bottom. Keys mean the same thing on every
 | Enter, → or `l` | Open or play |
 | Esc, ←, `h` or Backspace | Back up one level |
 | `s` | Change sport (schedules, replays and their sources); on Home, open one sport's schedule |
-| Tab | On Home, move between the games and the sections line |
+| Tab | On Home, jump between the menu and the games |
 | `f` | Filter the current list |
 | `r` | Refresh the current list |
 | `?` · `q` | Help · quit |
