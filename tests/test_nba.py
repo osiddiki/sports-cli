@@ -471,7 +471,7 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_missing_pieces_name_the_installer_command(self):
         app = nba.App.__new__(nba.App)
-        app.player, app.ai_ad_mute, app.ai_ad_observe = 'mpv', False, False
+        app.player, app.ad_choice = 'mpv', 'off'
         feed = nba.Feed('Example', 'Source', url='https://example.com/a.m3u8', kind='direct')
         with patch.object(nba.shutil, 'which', return_value=None):
             with patch.dict(nba.os.environ, {'SPORTS_CLI_COMMAND': 'sports'}):
@@ -592,9 +592,10 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_s_changes_sport_and_settings_set_the_resolver(self):
         # Home -> s (sport list) -> NBA -> a game's sources -> s (sport picker) -> Esc back to sources
-        # -> , settings -> the PPV resolver row -> Enter.
+        # -> , settings -> Down to the PPV resolver row -> Enter. Ad mute and Ad detector sit above it.
+        downs = [name for name, _, _ in nba.App(None, {}).settings_rows()].index('PPV resolver folder')
         class Screen:
-            def __init__(self): self.keys = iter([ord('s'), 10, 10, ord('s'), 27, ord(','), *[ord('j')] * 6, 10, ord('q')])
+            def __init__(self): self.keys = iter([ord('s'), 10, 10, ord('s'), 27, ord(','), *[ord('j')] * downs, 10, ord('q')])
             def keypad(self, value): pass
             def timeout(self, value): pass
             def getch(self): return next(self.keys)
@@ -602,12 +603,13 @@ class DiscoveryTests(unittest.TestCase):
         modes = []
         with patch.object(nba.curses, 'curs_set'), patch.object(app, 'render', side_effect=lambda: modes.append(app.mode)), patch.object(app, 'refresh_tonight'), \
              patch.object(nba, 'get_games', return_value=[self.game]), patch.object(nba, 'feed_tasks', return_value=[]), \
-             patch.object(app, 'configure_resolver') as resolver:
+             patch.object(app, 'configure_resolver') as resolver, patch.object(nba.ai_ad_mute, 'install') as install:
             app.run()
         self.assertEqual(modes[0], 'home')
         self.assertIn('leagues', modes); self.assertEqual(modes[modes.index('leagues', modes.index('feeds')) + 1], 'feeds')
         self.assertEqual(modes[-1], 'settings')
         resolver.assert_called_once()
+        install.assert_not_called()
 
     def test_feed_loading_continues_while_sport_menu_is_open(self):
         app = nba.App(None,{})
