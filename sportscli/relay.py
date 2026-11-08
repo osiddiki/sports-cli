@@ -35,7 +35,14 @@ class _Pool:
     """Keep-alive HTTP connections, so each segment skips a fresh TCP and TLS handshake."""
     def __init__(self, per_host=4):
         self.idle = {}; self.lock = threading.Lock(); self.per_host = per_host
-        self.context = ssl.create_default_context()
+        self.context = None
+
+    def _context(self):
+        if self.context is None:
+            with self.lock:
+                if self.context is None:
+                    self.context = ssl.create_default_context()
+        return self.context
 
     def _take(self, key):
         with self.lock:
@@ -60,7 +67,7 @@ class _Pool:
                 if connection is None:
                     fresh = True
                     if parts.scheme == 'https':
-                        connection = http.client.HTTPSConnection(parts.hostname, parts.port, timeout=timeout, context=self.context)
+                        connection = http.client.HTTPSConnection(parts.hostname, parts.port, timeout=timeout, context=self._context())
                     else:
                         connection = http.client.HTTPConnection(parts.hostname, parts.port, timeout=timeout)
                 else:
