@@ -83,37 +83,78 @@ def compatible_python():
     return None, None
 
 
-def install():
-    """Install only when the user explicitly requests the optional model."""
+def _captured_text(exc):
+    """The tool's own last line, when a setup command captured it."""
+    if not isinstance(exc, subprocess.CalledProcessError):
+        return str(exc)
+    captured = exc.stderr or exc.stdout or ''
+    if isinstance(captured, bytes):
+        captured = captured.decode('utf-8', 'replace')
+    lines = [line.strip() for line in captured.splitlines() if line.strip()]
+    return lines[-1] if lines else str(exc)
+
+
+def install(log=None):
+    """Install only when the user explicitly requests the optional model.
+
+    log collects this install's text and the output of its setup commands.
+    Without log, that text goes to the terminal, as the command-line install does.
+    """
+    def say(message, *, error=False, flush=False):
+        print(message, file=log if log is not None else (sys.stderr if error else sys.stdout), flush=flush)
+
+    def keep(chunk):
+        if not log or not chunk:
+            return
+        if isinstance(chunk, bytes):
+            chunk = chunk.decode('utf-8', 'replace')
+        log.write(chunk if chunk.endswith('\n') else chunk + '\n')
+
+    def spawn(args, **kwargs):
+        if log is None:
+            return subprocess.run(args, **kwargs)
+        forwarded = dict(kwargs)
+        if not forwarded.get('capture_output'):
+            forwarded['stdout'] = subprocess.PIPE
+            forwarded['stderr'] = subprocess.PIPE
+        forwarded['text'] = True
+        try:
+            completed = subprocess.run(args, **forwarded)
+        except subprocess.CalledProcessError as exc:
+            keep(exc.stdout); keep(exc.stderr)
+            raise
+        keep(completed.stdout); keep(completed.stderr)
+        return completed
+
     if installed():
-        print(f'Local AI ad detector already installed in {installation_dir()}.')
+        say(f'Local AI ad detector already installed in {installation_dir()}.')
         return 0
     if sys.platform not in ('darwin', 'win32') and not sys.platform.startswith('linux'):
-        print('AI ad detection requires macOS, Linux or Windows.', file=sys.stderr); return 1
+        say('AI ad detection requires macOS, Linux or Windows.', error=True); return 1
     interpreter, python_version = compatible_python()
     if not interpreter:
         command = os.environ.get('SPORTS_CLI_COMMAND')
-        print('The one-time AI setup needs Python 3.10 through 3.12.' if os.name == 'nt' else
-              'The one-time AI setup needs Python 3.9 through 3.12 and venv.', file=sys.stderr)
-        if command: print(f'Run "{command} --setup-ads" to install a suitable Python and the detector.', file=sys.stderr)
+        say('The one-time AI setup needs Python 3.10 through 3.12.' if os.name == 'nt' else
+            'The one-time AI setup needs Python 3.9 through 3.12 and venv.', error=True)
+        if command: say(f'Run "{command} --setup-ads" to install a suitable Python and the detector.', error=True)
         return 1
     intel_mac = sys.platform == 'darwin' and platform.machine().lower() in ('x86_64', 'amd64')
     root = installation_dir()
     try: root.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     except OSError as exc:
-        print(f'Cannot create detector directory: {exc}', file=sys.stderr); return 1
+        say(f'Cannot create detector directory: {exc}', error=True); return 1
     if root.exists():
         # Only an interrupted earlier setup leaves this folder without a working detector; start over.
-        print(f'Removing an incomplete earlier setup in {root}.')
+        say(f'Removing an incomplete earlier setup in {root}.')
         try: shutil.rmtree(root)
         except OSError as exc:
-            print(f'Cannot remove the incomplete setup: {exc}', file=sys.stderr); return 1
-    print('Installing the optional NBA ad detector. This downloads a 150 MB source model and conversion packages;')
-    print('allow about 1.5 GB of temporary space. The final model is about 22 MB.', flush=True)
-    if intel_mac: print('Intel macOS needs the larger TensorFlow runtime.')
+            say(f'Cannot remove the incomplete setup: {exc}', error=True); return 1
+    say('Installing the optional NBA ad detector. This downloads a 150 MB source model and conversion packages;', flush=True)
+    say('allow about 1.5 GB of temporary space. The final model is about 22 MB.', flush=True)
+    if intel_mac: say('Intel macOS needs the larger TensorFlow runtime.')
     try: temporary = pathlib.Path(tempfile.mkdtemp(prefix='ad-mute-', dir=str(root.parent)))
     except OSError as exc:
-        print(f'Cannot create temporary installation: {exc}', file=sys.stderr); return 1
+        say(f'Cannot create temporary installation: {exc}', error=True); return 1
     try:
         build = temporary / 'build'; build.mkdir()
         source = build / 'source.keras'
@@ -122,7 +163,7 @@ def install():
             try: length = int(getattr(response, 'headers', {}).get('Content-Length', ''))
             except (ValueError, TypeError): length = None
             if length and length > MAX_MODEL_BYTES: raise ValueError('Model download exceeded the expected size')
-            with progress.Download('Downloading model', length) as download:
+            with progress.Download('Downloading model', length, log) as download:
                 while True:
                     chunk = response.read(256 * 1024)
                     if not chunk: break
@@ -132,38 +173,38 @@ def install():
                     download.update(total)
         if digest.hexdigest() != MODEL_SHA256: raise ValueError('Model checksum did not match')
         converter = build / 'venv'
-        with progress.activity('Installing temporary conversion tools'):
-            subprocess.run([interpreter, '-m', 'venv', str(converter)], check=True)
+        with progress.activity('Installing temporary conversion tools', log):
+            spawn([interpreter, '-m', 'venv', str(converter)], check=True)
             conversion_python = venv_python(converter)
             tensorflow = 'tensorflow-cpu==2.16.2' if sys.platform.startswith('linux') else 'tensorflow==2.16.2'
-            subprocess.run([str(conversion_python), '-m', 'pip', 'install', '--quiet', '--no-cache-dir',
-                            tensorflow, 'keras==3.3.3'], check=True)
+            spawn([str(conversion_python), '-m', 'pip', 'install', '--quiet', '--no-cache-dir',
+                   tensorflow, 'keras==3.3.3'], check=True)
         env = os.environ.copy()
         env.update({'CUDA_VISIBLE_DEVICES':'-1', 'OMP_NUM_THREADS':'2', 'OPENBLAS_NUM_THREADS':'1',
                     'TF_NUM_INTRAOP_THREADS':'2', 'TF_NUM_INTEROP_THREADS':'1', 'TF_CPP_MIN_LOG_LEVEL':'3'})
         model = temporary / 'nba-ads-v1.tflite'
-        with progress.activity('Optimizing the model locally'):
-            subprocess.run([str(conversion_python), str(EXPORTER), str(source), str(model)], env=env, check=True)
+        with progress.activity('Optimizing the model locally', log):
+            spawn([str(conversion_python), str(EXPORTER), str(source), str(model)], env=env, check=True)
         if not model.is_file() or not 0 < model.stat().st_size <= 25_000_000:
             raise ValueError('Converted model has an unexpected size')
         shutil.rmtree(build)
-        with progress.activity('Installing the isolated detection runtime'):
-            subprocess.run([interpreter, '-m', 'venv', str(temporary / 'venv')], check=True)
+        with progress.activity('Installing the isolated detection runtime', log):
+            spawn([interpreter, '-m', 'venv', str(temporary / 'venv')], check=True)
             python = venv_python(temporary / 'venv')
             runtime = ('tensorflow==2.16.2' if intel_mac else
                        'ai-edge-litert==1.4.0' if python_version == (3, 9) else 'ai-edge-litert==2.3.0')
-            subprocess.run([str(python), '-m', 'pip', 'install', '--quiet', '--no-cache-dir', runtime, 'Pillow>=10,<12'], check=True)
-        check = subprocess.run([str(python), '-u', str(WORKER), str(model)], input='', capture_output=True,
-                               text=True, env=env, timeout=60, check=True)
+            spawn([str(python), '-m', 'pip', 'install', '--quiet', '--no-cache-dir', runtime, 'Pillow>=10,<12'], check=True)
+        check = spawn([str(python), '-u', str(WORKER), str(model)], input='', capture_output=True,
+                       text=True, env=env, timeout=60, check=True)
         if not json.loads(check.stdout.splitlines()[0]).get('ready'):
             raise ValueError('The installed detector could not load the model')
         # Use the venv Python directly; do not rely on relocation-sensitive pip scripts.
         os.rename(temporary, root)
         command = os.environ.get('SPORTS_CLI_COMMAND') or './sports-cli'
-        print(f'Installed. Run "{command} --ai-ad-observe" to preview it, or "{command} --ai-ad-mute" to mute ads.')
+        say(f'Installed. Run "{command} --ai-ad-observe" to preview it, or "{command} --ai-ad-mute" to mute ads.')
         return 0
     except (OSError, ValueError, IndexError, subprocess.SubprocessError) as exc:
-        print(f'Optional AI detector installation failed: {exc}', file=sys.stderr)
+        say(f'Optional AI detector installation failed: {_captured_text(exc)}', error=True)
         return 1
     finally:
         if temporary.exists(): shutil.rmtree(temporary)

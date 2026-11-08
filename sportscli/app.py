@@ -2,8 +2,8 @@
 """Sports terminal stream picker with an optional native fuzzy matcher."""
 from __future__ import annotations
 import argparse
-import contextlib
 import curses
+import io
 import concurrent.futures
 import datetime as dt
 import http.client
@@ -2948,16 +2948,20 @@ class App:
         threading.Thread(target=self._install_ad_detector, name='ad-detector', daemon=True).start()
 
     def _install_ad_detector(self):
+        log = io.StringIO()
         code = 1
         try:
-            with open(os.devnull, 'w') as sink, contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
-                code = ai_ad_mute.install()
-        except Exception:
-            pass
+            code = ai_ad_mute.install(log=log)
+        except Exception as exc:
+            print(f'Optional AI detector installation failed: {exc}', file=log)
         ready = code == 0 and ai_ad_mute.installed()
         self.ad_install = None
         if self.closed.is_set(): return
-        self.message = 'Ad detector is installed.' if ready else 'Ad detector installation failed.'
+        if ready:
+            self.message = 'Ad detector is installed.'
+            return
+        failed = [line.strip() for line in log.getvalue().splitlines() if 'installation failed' in line]
+        self.message = failed[-1] if failed else 'Ad detector installation failed.'
 
     def run(self):
         try:

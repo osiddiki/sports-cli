@@ -1,5 +1,8 @@
+import hashlib
 import http.server
+import io
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -87,7 +90,7 @@ class SettingsAdMuteTests(unittest.TestCase):
     def test_settings_offers_ad_mute_and_installs_the_model_only_when_chosen(self):
         calls = []
 
-        def fake_install():
+        def fake_install(log=None):
             if row(app, 'Ad detector') != 'installing':
                 raise AssertionError('Settings did not show the detector as installing')
             calls.append('install')
@@ -193,6 +196,68 @@ class SettingsAdMuteTests(unittest.TestCase):
             self.assertEqual(row(again, 'Ad mute'), 'off')
             self.assertEqual(row(again, 'Ad detector'), 'installed')
             self.assertEqual(calls, ['install', 'install'])
+
+    def test_settings_install_keeps_subprocess_output_off_the_terminal(self):
+        contents = b'local test model'
+        failure = 'Optional AI detector installation failed: ERR-MARKER'
+
+        real_run = subprocess.run
+
+        def run(args, **kwargs):
+            return real_run([sys.executable, '-c',
+                              'import sys; sys.stdout.write("OUT-MARKER\\n"); sys.stderr.write("ERR-MARKER\\n"); raise SystemExit(3)'],
+                             **kwargs)
+
+        class Capture:
+            def __enter__(self):
+                self.saved, self.reads = [], []
+                for fd in (1, 2):
+                    read_fd, write_fd = os.pipe()
+                    saved = os.dup(fd)
+                    os.dup2(write_fd, fd)
+                    os.close(write_fd)
+                    self.saved.append((fd, saved))
+                    self.reads.append(read_fd)
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                for stream in (sys.stdout, sys.stderr):
+                    try: stream.flush()
+                    except (OSError, ValueError): pass
+                for fd, saved in self.saved:
+                    os.dup2(saved, fd)
+                    os.close(saved)
+                chunks = []
+                for read_fd in self.reads:
+                    parts = []
+                    while True:
+                        block = os.read(read_fd, 65536)
+                        if not block: break
+                        parts.append(block)
+                    os.close(read_fd)
+                    chunks.append(b''.join(parts))
+                self.captured = b''.join(chunks)
+                return False
+
+        with tempfile.TemporaryDirectory() as root, \
+             patch.dict(os.environ, {'XDG_DATA_HOME': root}), \
+             patch.object(ai_ad_mute, 'compatible_python', return_value=(sys.executable, (3, 12))), \
+             patch.object(ai_ad_mute, 'MODEL_SHA256', hashlib.sha256(contents).hexdigest()), \
+             patch.object(ai_ad_mute.urllib.request, 'urlopen', return_value=io.BytesIO(contents)), \
+             patch.object(ai_ad_mute.subprocess, 'run', side_effect=run), \
+             patch.object(nba.threading, 'Thread', ImmediateThread):
+            app = nba.App(Screen(), {})
+            app.handle_key(ord(','), ',')
+            app.settings_index = [name for name, _, _ in app.settings_rows()].index('Ad detector')
+            with Capture() as terminal:
+                app.handle_key(10, '\n')
+        self.assertNotIn(b'OUT-MARKER', terminal.captured)
+        self.assertNotIn(b'ERR-MARKER', terminal.captured)
+        self.assertEqual(app.message, failure)
+        app.render()
+        drawn = '\n'.join(app.scr.text[y] for y in sorted(app.scr.text))
+        self.assertIn(failure, drawn)
+        self.assertIn('not installed', drawn)
 
 
 if __name__ == '__main__':
