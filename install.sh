@@ -175,7 +175,7 @@ if [ "$OS" = mac ] && has osacompile; then
   mkdir -p "$HOME/Applications"
   rm -rf "$HOME/Applications/Sports CLI.app"
   # Opening the launcher with Terminal, rather than scripting Terminal, needs no automation permission.
-  run osacompile -o "$HOME/Applications/Sports CLI.app" -e "do shell script \"open -a Terminal '$BIN/sports'\"" ||
+  run osacompile -o "$HOME/Applications/Sports CLI.app" -e "do shell script \"open -a Terminal '$BIN/sports'\"" 2>/dev/null ||
     echo 'The Applications launcher could not be made; type "sports" in Terminal instead.'
 elif [ "$OS" = linux ]; then
   apps=${XDG_DATA_HOME:-$HOME/.local/share}/applications
