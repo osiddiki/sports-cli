@@ -226,6 +226,7 @@ class Merged:
     SAME_CLOCK = 90    # transport-stream timestamps this close are one encoder's clock, which realigns exactly
     CACHE_BYTES = 192 * 1024 * 1024
     RETURN_AFTER = 30  # seconds the chosen source must stay healthy before playback returns to it
+    PREPARE_WAIT = 6   # seconds a backup's playlist may take before playback starts without it
     LAG_MEMORY = 300   # seconds a source left for being too slow is not switched back to for speed
 
     def __init__(self, relay, sid, sources):
@@ -282,11 +283,19 @@ class Merged:
         return time.monotonic() - source['advanced'] < max(3, 1.5 * playlist.target + .5)
 
     def prepare(self):
-        """Check each source once; return how many can be merged. The primary must work."""
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.sources)) as pool:
-            results = list(pool.map(lambda i: self._try_load(i), range(len(self.sources))))
-        if not results[0]: return 0
-        usable = [i for i, ok in enumerate(results) if ok]
+        """Check each source once; return how many can be merged. The primary must work.
+
+        A backup is optional, so its playlist gets PREPARE_WAIT seconds from the start and no more:
+        a slow one must not delay a primary that is ready to play."""
+        started = time.monotonic()
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(self.sources))
+        try:
+            loads = [pool.submit(self._try_load, index) for index in range(len(self.sources))]
+            if not loads[0].result(): return 0
+            concurrent.futures.wait(loads[1:], timeout=max(0, started + self.PREPARE_WAIT - time.monotonic()))
+            usable = [0] + [index for index, load in enumerate(loads) if index and load.done() and load.result()]
+        finally:
+            pool.shutdown(wait=False)
         if len(usable) > 2: usable = [0, self.best_backup(usable)]
         self.sources, self.kept = [self.sources[i] for i in usable], usable
         return len(self.sources)
@@ -295,19 +304,32 @@ class Merged:
         """Of several working backups, the first that lines up with the primary, else the first.
 
         Sources from different encoders share no clock or segment names, so switching to them replays
-        or skips seconds; one that lines up resumes exactly where the primary stopped."""
-        return next((i for i in usable[1:] if self.lines_up(self.sources[0], self.sources[i])), usable[1])
+        or skips seconds; one that lines up resumes exactly where the primary stopped. Playlists settle
+        most pairs for free; the rest need a segment each, downloaded together, the primary's once."""
+        main = self.sources[0]
+        verdicts = {index: self.shares_timeline(main, self.sources[index]) for index in usable[1:]}
+        settled = next((index for index in usable[1:] if verdicts[index]), None)
+        unknown = [index for index in usable[1:] if verdicts[index] is None and (settled is None or index < settled)]
+        if unknown:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(unknown) + 1) as pool:
+                clock, *others = pool.map(self.clock, [main] + [self.sources[index] for index in unknown])
+            for index, other in zip(unknown, others):
+                verdicts[index] = None not in (clock, other) and abs(merge.pts_seconds(clock, other)) <= self.SAME_CLOCK
+        return next((index for index in usable[1:] if verdicts[index]), usable[1])
 
-    def lines_up(self, main, other):
+    @staticmethod
+    def shares_timeline(main, other):
+        """Whether two playlists show one timeline: True or False when they say, None when only their media can."""
         a, b = main['playlist'].segments, other['playlist'].segments
         if not a or not b: return False
         if {s.name for s in a} & {s.name for s in b}: return True
         if a[-1].pdt is not None and b[-1].pdt is not None: return abs(a[-1].pdt - b[-1].pdt) <= 30
-        try:
-            clocks = [merge.first_pts(_media(self.fetch(source['playlist'].segments[-1].url, source['headers'], 15)))
-                      for source in (main, other)]
-        except (OSError, ValueError, urllib.error.URLError): return False
-        return None not in clocks and abs(merge.pts_seconds(*clocks)) <= self.SAME_CLOCK
+        return None
+
+    def clock(self, source):
+        """The first timestamp of a source's newest segment, or None when it cannot be read."""
+        try: return merge.first_pts(_media(self.fetch(source['playlist'].segments[-1].url, source['headers'], 15)))
+        except (OSError, ValueError, urllib.error.URLError): return None
 
     def _try_load(self, index):
         try: self.load(index); return True

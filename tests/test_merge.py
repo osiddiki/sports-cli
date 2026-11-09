@@ -281,14 +281,16 @@ class BackupSelectionTest(unittest.TestCase):
 
 class BackupChoiceTest(unittest.TestCase):
     """With several working backups the relay keeps the one that resumes exactly where the primary stopped."""
-    def prepared(self, sources, names, clocks):
+    def prepared(self, sources, names, clocks, *, segment_delay=0, playlist_delay=None):
         server, probed = relay.Relay(), []
         def fetch(url, *args, **kwargs):
             if url.endswith('.m3u8'):
                 host = url.split('/')[2]
+                relay.time.sleep((playlist_delay or {}).get(host, 0))
                 return ('\n'.join(['#EXTM3U', '#EXT-X-TARGETDURATION:2', '#EXT-X-MEDIA-SEQUENCE:0'] +
                                   [f'#EXTINF:2,\n{names[host]}{n:03d}.ts' for n in range(6)]) + '\n').encode()
             probed.append(url)
+            relay.time.sleep(segment_delay)
             return ts_with_pts(clocks[url.split('/')[2]] * 90000)
         try:
             with patch.object(relay, '_download', side_effect=fetch), patch.object(relay.Merged, 'start'):
@@ -315,6 +317,30 @@ class BackupChoiceTest(unittest.TestCase):
         names = {'main': 'seg', 'mirror': 'seg', 'other': 'x'}
         _, _, _, kept, probed = self.prepared(['main', 'mirror', 'other'], names, {'main': 1000, 'mirror': 90_000, 'other': 1000})
         self.assertEqual((kept, probed), ([0, 1], []))
+
+    def test_the_primary_segment_is_downloaded_once_however_many_backups_are_compared(self):
+        names = {'main': 'a', 'other': 'b', 'same': 'c'}
+        clocks = {'main': 1000, 'other': 90_000, 'same': 1010}
+        _, _, _, kept, probed = self.prepared(['main', 'other', 'same'], names, clocks)
+        self.assertEqual(kept, [0, 2])
+        self.assertEqual(sorted(url.split('/')[2] for url in probed), ['main', 'other', 'same'])
+
+    def test_backups_are_compared_together_not_one_after_another(self):
+        names = {'main': 'a', 'other': 'b', 'same': 'c'}
+        clocks = {'main': 1000, 'other': 90_000, 'same': 1010}
+        started = relay.time.monotonic()
+        _, _, _, kept, _ = self.prepared(['main', 'other', 'same'], names, clocks, segment_delay=.3)
+        self.assertEqual(kept, [0, 2])
+        self.assertLess(relay.time.monotonic() - started, .75, 'three 0.3 s downloads in a row take 0.9 s')
+
+    def test_a_backup_whose_playlist_is_slow_does_not_hold_up_playback(self):
+        names = {'main': 'seg', 'slow': 'x', 'mirror': 'seg'}
+        clocks = {'main': 1000, 'slow': 1000, 'mirror': 1000}
+        started = relay.time.monotonic()
+        with patch.object(relay.Merged, 'PREPARE_WAIT', .3, create=True):
+            _, usable, session, kept, _ = self.prepared(['main', 'slow', 'mirror'], names, clocks, playlist_delay={'slow': 2})
+        self.assertLess(relay.time.monotonic() - started, 1.5)
+        self.assertEqual((usable, kept), (2, [0, 2]))
 
     def test_keeps_the_first_backup_when_none_line_up(self):
         names = {'main': 'a', 'one': 'b', 'two': 'c'}
