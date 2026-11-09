@@ -96,8 +96,8 @@ def row(text, *, detail='', style='', pick=True, cells=None, cursor=None, league
 def view(a):
     """What the screen shows: the same rows, selection and actions as App.render, without the drawing."""
     heading = {'home': 'Tonight', 'settings': 'Settings', 'search': 'Search', 'games': 'Games', 'replays': 'Replays',
-               'replay_sources': 'Replay sites', 'channels': 'Live TV', 'feeds': 'Sources', 'help': 'Help',
-               'leagues': 'Live sports: choose a sport' if a.section == 'sports' else 'Replays: choose a sport'}
+               'replay_sources': 'Replay sites', 'channels': 'Live TV', 'feeds': 'Streams', 'help': 'Help',
+               'leagues': 'By sport: choose a sport' if a.section == 'sports' else 'Replays: choose a sport'}
     tv = a.mode == 'channels' or a.mode == 'feeds' and a.feed_context == 'tv'
     accent = 'tv' if tv else a.league
     out = {'mode': a.mode, 'accent': accent, 'title': heading.get(a.mode, ''), 'busy': a.busy(), 'message': a.message, 'info': [],
@@ -118,7 +118,7 @@ def view(a):
         out['global'] = 'Esc back   Ctrl-U clear   Ctrl-X quit'
     elif a.mode == 'help':
         rows.extend(row(line, pick=False) for line in app.HELP_LINES[a.help_scroll:])
-        out['actions'] = 'j/k scroll   Esc back'
+        out['actions'] = '↑↓ scroll   Esc back'
     elif a.mode == 'home':
         for index, kind, value in a.home_lines():
             if index == a.home_index: selected = len(rows)
@@ -145,7 +145,7 @@ def view(a):
                             detail=', '.join(game.broadcasts) or 'No TV listing', style='live' if live else ''))
         selected = a.gi
         out['empty'] = 'Loading schedule' if a.loading_games else 'No upcoming or live games. Change date or search.'
-        out['actions'] = 'Enter sources   s sport   [ ] date   f filter   r refresh   Esc back'
+        out['actions'] = app.SCHEDULE_ACTIONS
     elif a.mode == 'replays':
         out['info'] = [f'{app.LEAGUES[a.league][0]}  ·  recent replays  ·  search: {a.replay_search or "all"}']
         drawn = app.replays.lines(a.replays)
@@ -155,20 +155,20 @@ def view(a):
             rows.append(row(line.text, detail=line.detail, style='' if line.game else 'heading',
                             pick=line.game is not None))
         out['empty'] = 'Searching replay catalogs' if a.replay_pending else 'No replays found. Try another search or league.'
-        out['actions'] = 'Enter sources   s sport   f search titles   r refresh   Esc back'
+        out['actions'] = app.REPLAY_ACTIONS
     elif a.mode == 'channels':
         shown = a.visible_channels()
         out['info'] = [f'{len(shown)} channels  ·  filter: {a.channel_filter or "all"}']
         for channel in shown:
             count = len(channel.sources)
-            rows.append(row(channel.name, detail=f'{count} source{"s" if count != 1 else ""}', style='bold' if channel.featured else ''))
+            rows.append(row(channel.name, detail=f'{count} stream{"s" if count != 1 else ""}', style='bold' if channel.featured else ''))
         selected = a.ci
         out['empty'] = 'Loading channels' if a.channels_loading else 'No channels match. Press f to change the filter.'
-        out['actions'] = 'Enter sources   f filter   r refresh   Esc back'
+        out['actions'] = app.CHANNEL_ACTIONS
     elif a.mode == 'replay_sources':
         out['info'] = [a.current_bundle.title]
         for item in a.current_bundle.sources: rows.append(row(item.source))
-        selected = a.bundle_index; out['actions'] = 'Enter sources   Esc back'
+        selected = a.bundle_index; out['actions'] = app.SITE_ACTIONS
     elif a.mode == 'feeds':
         feeds_view(a, out)
         selected = a.fi
@@ -197,33 +197,21 @@ def feeds_view(a, out):
     if a.rank_by_checks: context.append('ranked')
     if not a.dual_stream and a.feed_context in ('live', 'tv'): context.append('backup: off')
     out['info'].append('  ·  '.join(context))
-    out['columns'] = ['SOURCE', 'SIDE', 'QUALITY', 'CHECK']
+    out['columns'] = ['SOURCE', 'FEED', 'PICTURE', 'STATUS']
     fs = a.visible_feeds()
     a.fi = min(a.fi, max(0, len(fs)-1))
-    history = a.config.get('health') if isinstance(a.config.get('health'), dict) else {}
-    for feed in fs:
-        opening = a.action_current and a.action_current[1] == a.feed_generation and a.action_current[2] is feed
-        status = (('Opening' if a.action_current[3] == 'play' else 'Inspecting') if opening else
-                  'testing' if (a.feed_generation, id(feed)) in a.manual_checks else
-                  a.manual_status.get(id(feed), a.auto_checks.get(id(feed))))
-        if id(feed) in a.auto_checked_at and status == a.auto_checks.get(id(feed)) and id(feed) not in a.manual_status:
-            status = f'{status} {app.check_age(time.time() - a.auto_checked_at[id(feed)])}'
-        record = dict(history.get(app.grading.source_key(feed), {}))
-        if id(feed) in a.auto_heights: record['height'] = a.auto_heights[id(feed)]
-        if id(feed) in a.auto_speeds: record['speed'] = a.auto_speeds[id(feed)]
-        shown = app.describe_feed(feed, record, status)
-        fallback = {'ppv': 'Uses local resolver', 'web': 'Browser-only; no media URL'}.get(feed.kind, 'Direct stream')
-        style = 'fail' if a.failed_check(feed) else 'warn' if shown.check.startswith('May lag') else 'ok' if str(status).startswith('OK') else 'busy' if status in ('checking', 'testing', 'Opening', 'Inspecting') else ''
+    statuses = [a.feed_status(feed) for feed in fs]
+    views = a.source_views(fs)
+    for feed, status, shown in zip(fs, statuses, views):
+        style = ('fail' if a.failed_check(feed) else 'warn' if shown.check.startswith('May lag') else 'ok' if status == 'OK'
+                 else 'busy' if status in ('checking', 'testing', 'Opening', 'Inspecting') else '')
         out['rows'].append(row(shown.name, cells=[shown.name, shown.side, shown.quality, shown.check],
-                               detail=shown.detail or fallback, style=style))
+                               detail='  ·  '.join(filter(None, [shown.site, shown.detail])), style=style))
     failed = (sum(1 for f in a.feeds if id(f) not in a.hidden_feeds and a.failed_check(f)) if a.show_failed else a.hidden_failed())
-    out['actions'] = ('Enter play   x test   i inspect   u paste URL   ' + ('a side   ' if a.feed_context == 'live' else '')
-                      + 'o source   f filter   g rank   ' + ('s sport   ' if a.feed_context != 'tv' else '')
-                      + (f'v hide {failed} failed   ' if a.show_failed and failed else f'v show {failed} failed   ' if failed else '')
-                      + 'r refresh   Esc back')
-    out['empty'] = ('Looking for sources' if a.feed_pending else
-                    f'All {failed} sources failed their checks. Press v to show them or r to check again.' if failed and not a.show_failed else
-                    'No sources available. Refresh near game time or change the filter.')
+    out['actions'] = a.feed_actions()
+    out['empty'] = ('Looking for streams' if a.feed_pending else
+                    f'None of the {failed} streams worked when checked. Press v to show them or r to check again.' if failed and not a.show_failed else
+                    'No streams yet. Try again near game time, or change the filter.')
 
 
 class Remote:

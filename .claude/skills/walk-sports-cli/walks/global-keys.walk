@@ -1,6 +1,6 @@
 # Help, settings and search open from a list that is not Home and return to it with its selection kept.
 start ^ Tonight
-key s => ^ Live sports: choose a sport
+key s => ^ By sport: choose a sport
 key Down => > WNBA
 key ? => ^ Help
 key Esc => > WNBA

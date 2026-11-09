@@ -135,7 +135,8 @@ class TvModeTests(unittest.TestCase):
             app.channel_queue.put(app.channel_queue.get(timeout=2))
             self.assertTrue(app.poll_channels())
         self.assertEqual(app.mode, 'channels')
-        self.assertIn('iptv-org: URLError', app.message)
+        self.assertIn('one list did not load. r tries again.', app.message)
+        self.assertNotIn('URLError', app.message)
         app.channel_filter = 'fox'
         self.assertEqual([c.name for c in app.visible_channels()], ['Fox News'])
 

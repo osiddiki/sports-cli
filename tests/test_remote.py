@@ -12,7 +12,7 @@ from tests.test_screens import CHANNELS, GAMES, Screen, feeds, make_app, press
 
 REAL_HEADLESS = remote.Headless
 FRONT_END_KEYS = {'Enter': 'enter', 'Esc': 'escape', 'Down': 'down', 'Up': 'up', 'Left': 'left', 'Right': 'right', 'Tab': 'tab'}
-SECTIONS = ['Replays', 'Live TV', 'Search', 'Settings']
+SECTIONS = ['Tonight', 'By sport', 'Replays', 'Live TV', 'Search', 'Settings']
 JOURNEYS = [
     ['s', 'Enter', 'Enter', 'Esc', 'Esc', 'Esc', 'Esc'],
     ['Tab', 'Down', 'Enter', 'f', 'Enter', 'Down', 'Up', 'Esc', 'Esc'],
@@ -69,7 +69,8 @@ class RemoteTests(unittest.TestCase):
         games = [line for line in lines if any(game.title in line for game in GAMES)]
         self.assertEqual([line.split()[:2] for line in games], [['>', 'NBA'], ['NBA', GAMES[1].title.split()[0]]])
         self.assertIn('●', games[0])
-        self.assertEqual(lines[2].split(), ['Replays', 'Live', 'TV', 'Search', 'Settings'], 'the sections head Home, above every game')
+        self.assertEqual(lines[2].split(), ['Tonight', 'By', 'sport', 'Replays', 'Live', 'TV', 'Search', 'Settings'],
+                         'the sections head Home, above every game')
         self.assertFalse(any(line.lstrip('> ')[:1].isdigit() for line in lines), lines)
 
     def test_schedule_and_sources_describe_what_the_terminal_draws(self):
@@ -77,12 +78,12 @@ class RemoteTests(unittest.TestCase):
         self.assertEqual([row['text'] for row in view['rows']], [game.title for game in GAMES])
         self.assertEqual(view['rows'][0]['style'], 'live')
         view = self.remote.key('enter')
-        self.assertEqual((view['mode'], view['columns']), ('feeds', ['SOURCE', 'SIDE', 'QUALITY', 'CHECK']))
+        self.assertEqual((view['mode'], view['columns']), ('feeds', ['SOURCE', 'FEED', 'PICTURE', 'STATUS']))
         self.assertEqual(len(view['rows']), len(feeds()))
         self.assertIn('Enter play', view['actions'])
 
     def test_keys_that_ask_a_question_become_a_prompt_the_front_end_answers(self):
-        view = self.remote.key('2')
+        view = self.remote.key('4')
         self.assertEqual(len(view['rows']), len(CHANNELS))
         asked = self.remote.key('f')['events']
         self.assertEqual([(event['type'], event['key']) for event in asked], [('prompt', 'f')])
@@ -146,14 +147,17 @@ class HomeTonightTests(unittest.TestCase):
         for key in (curses.KEY_UP, curses.KEY_RIGHT, curses.KEY_RIGHT, curses.KEY_UP, curses.KEY_LEFT, curses.KEY_DOWN):
             app.handle_key(key, None); walk.append(app.home_rows()[app.home_index])
         self.assertEqual([item[1] if item in nba.HOME_ITEMS else item.title for item in walk],
-                         ['Replays', 'Live TV', 'Search', 'Search', 'Live TV', GAMES[0].title])
+                         ['Tonight', 'By sport', 'Replays', 'Replays', 'By sport', GAMES[0].title])
         app.handle_key(curses.KEY_UP, None); app.handle_key(curses.KEY_RIGHT, None); app.render()
         footer = '\n'.join(app.scr.text.values())
-        self.assertIn('Enter open Live TV', footer)
-        self.assertEqual(app.mode, 'home')
+        self.assertIn('Enter open By sport', footer)
+        app.handle_key(curses.KEY_LEFT, None); app.handle_key(10, None)
+        self.assertEqual((app.mode, app.home_rows()[app.home_index]), ('home', GAMES[0]), 'Enter on Tonight returns to the games')
 
-    def test_a_long_channel_list_ends_at_a_whole_name(self):
+    def test_a_long_channel_list_ends_at_a_whole_name_and_counts_the_rest(self):
         self.assertEqual(nba.fit_words('DAZN MIN (Home), KJZZ-TV (Away), Jazz+ (Away)', 24), 'DAZN MIN (Home)…')
+        self.assertEqual(nba.fit_channels('NBA TV, ESPN, Spectrum Sports Net (Away)', 18), 'NBA TV, ESPN +1')
+        self.assertEqual(nba.fit_channels('Spectrum Sports Net (Away), NBA TV', 12), 'Spectrum… +1')
         self.assertEqual(nba.fit_words('CBS', 24), 'CBS')
 
     def test_a_successful_reload_clears_a_failed_league(self):

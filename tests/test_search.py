@@ -326,11 +326,12 @@ class SearchTests(unittest.TestCase):
                         side='away', kind='candidate')
         view = nba.describe_feed(feed, {}, 'checking')
         self.assertEqual((view.name,view.side,view.quality,view.check),
-                         ('NBA Bite / sportylive.xyz','AWAY','~HD','Checking'))
+                         ('NBA Bite / sportylive.xyz','AWAY','HD','Checking…'))
         self.assertIn('Spectrum SportsNet',view.detail)
         view = nba.describe_feed(feed, {'checks':[True,True,True],'height':720}, 'OK')
         self.assertEqual(view.quality,'720p')
-        self.assertEqual(view.check,'OK A 3/3')
+        self.assertEqual(view.check,'OK')
+        self.assertEqual(nba.describe_feed(feed, {}, 'HTTP 404').check, 'Not working')
 
     def test_search_row_cursor_is_the_result_index(self):
         app = nba.App(remote.Screen(), {})

@@ -103,15 +103,16 @@ class ReopenSourcesTests(unittest.TestCase):
             self.assertEqual(self.open_sources(), first)
             self.assertEqual(self.calls, [])
 
-    def test_cached_result_shows_its_age(self):
+    def test_a_reopened_list_shows_remembered_results_in_plain_words(self):
         with patch.object(nba, 'quick_probe_feed', side_effect=self.probe):
             self.open_sources(); self.open_sources()
         screen = FakeScreen()
         self.app.scr = screen
         with patch.object(nba.time, 'time', return_value=time.time() + 40 * 60): self.app.render()
         text = '\n'.join(screen.lines)
-        self.assertIn('OK 40m', text); self.assertIn('HTTP 404 40m', text)
-        self.assertEqual(nba.check_age(20), 'now')
+        self.assertIn('OK', text); self.assertIn('Not working', text)
+        self.assertIn('Offline right now. Pick another source.', text)
+        self.assertNotIn('HTTP 404 40m', text)
 
     def test_r_rechecks_every_source(self):
         with patch.object(nba, 'quick_probe_feed', side_effect=self.probe):

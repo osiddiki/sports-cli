@@ -34,8 +34,14 @@ DADDYLIVE = 'https://dlive.sx/24-7-channels.php'
 MAX_PLAYLIST = 4_000_000
 ADULT = re.compile(r'18\+|\bxxx\b|\badult\b|\bporn', re.I)
 
-# Shown first, in this order. Each name lists the spellings providers use.
+# Shown first, in this order: sports, then news and the networks. Each name lists the spellings providers use.
 FEATURED = [
+    ('ESPN', ('espn', 'espn usa')),
+    ('ESPN2', ('espn2', 'espn 2', 'espn2 usa')),
+    ('FS1', ('fs1', 'fox sports 1', 'fox sports 1 usa')),
+    ('TNT', ('tnt', 'tnt usa')),
+    ('NFL RedZone', ('nfl redzone', 'nfl redzone main', 'nfl red zone', 'redzone')),
+    ('NFL Network', ('nfl network',)),
     ('CNN', ('cnn', 'cnn usa')),
     ('CNBC', ('cnbc', 'cnbc usa')),
     ('MS NOW', ('ms now', 'msnbc')),
@@ -53,12 +59,6 @@ FEATURED = [
     ('Fox Weather', ('fox weather', 'fox weather channel')),
     ('The Weather Channel', ('the weather channel', 'weather channel')),
     ('C-SPAN', ('c-span', 'cspan', 'c span 1')),
-    ('ESPN', ('espn', 'espn usa')),
-    ('ESPN2', ('espn2', 'espn 2', 'espn2 usa')),
-    ('FS1', ('fs1', 'fox sports 1', 'fox sports 1 usa')),
-    ('TNT', ('tnt', 'tnt usa')),
-    ('NFL RedZone', ('nfl redzone', 'nfl redzone main', 'nfl red zone', 'redzone')),
-    ('NFL Network', ('nfl network',)),
 ]
 # Free US feeds of these networks come and go; their international feeds play, in English, and fill in.
 # The source label names the feed so people can tell it from the US channel.

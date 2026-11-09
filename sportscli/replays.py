@@ -122,7 +122,7 @@ def lines(items):
             rows.append(ReplayLine(day_heading(game.date)))
             shown = game.date
         count = len(game.sources)
-        rows.append(ReplayLine(game.title, '1 site' if count == 1 else f'{count} sites', game))
+        rows.append(ReplayLine(game.title, '1 source' if count == 1 else f'{count} sources', game))
     return rows
 
 
@@ -135,7 +135,7 @@ def source_heading(item):
     pages = listings_of(item)
     if len(pages) == 1:
         return f'Replay sources from {pages[0].source}'
-    return f'{len(pages)} sites'
+    return f'{len(pages)} sources'
 
 
 def catalogs(league):

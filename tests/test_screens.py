@@ -216,7 +216,7 @@ class ScreenChartTests(unittest.TestCase):
             self.assertEqual((app.mode, app.league), ('games', league))
             app.render(); rows, _ = app.scr.getmaxyx()
             footer = app.scr.text.get(rows - 4, '') + '   ' + app.scr.text.get(rows - 3, '')
-            for hint, key in (('s sport', 's'), ('[ ] date', ']'), ('f filter', 'f'), ('r refresh', 'r')):
+            for hint, key in (('[ ] other days', ']'), ('f filter', 'f'), ('r reload', 'r')):
                 self.assertIn(hint, footer)
                 app = schedule(league); before = snapshot(app); press(app, key)
                 self.assertNotEqual(snapshot(app), before, f'"{hint}" does nothing for {league}')

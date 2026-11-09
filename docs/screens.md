@@ -1,12 +1,13 @@
 # Screens
 
-The app opens on Home: a menu of Replays, Live TV, Search and Settings on one line at the top, then
-tonight's games across leagues, live ones first. Up from the first game reaches the menu, Left and Right
-move along it, and Down goes back to the games. Keys mean the same thing on every screen:
+The app opens on Home: a menu of Tonight, By sport, Replays, Live TV, Search and Settings on one line at
+the top, then tonight's games across leagues, live ones first. Up from the first game reaches the menu,
+Left and Right move along it, the title and status line say what the highlighted tab holds, and Down goes
+back to the games. Keys mean the same thing on every screen:
 
 | Key | Does |
 |---|---|
-| `1` to `9` | Open that row of the list (a game, a sport, a channel, a source); the numbers are not drawn |
+| `1` to `9` | Open that row of the list (a game, a sport, a channel, a source); Sources draws its numbers as Stream 1, Stream 2 |
 | `/` | Search teams, players, games and channels |
 | `,` | Settings |
 | Enter, → or `l` | Open or play |

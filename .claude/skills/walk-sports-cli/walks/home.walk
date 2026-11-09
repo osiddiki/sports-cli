@@ -1,21 +1,26 @@
-# Home is tonight's games. s opens one sport's schedule, Tab reaches the sections
-# line (Replays, Live TV, Search, Settings), and Esc comes back to Tonight.
-# Works before the games finish loading: with no games yet, the sections line is
-# the whole list and Tab stays on Replays.
+# Home is tonight's games under a menu row: Tonight, By sport, Replays, Live TV,
+# Search, Settings. Up from the first game (or Tab) reaches the menu, Left and Right
+# move along it, and the status line says what the highlighted tab holds. Esc from a
+# destination returns to Home with its tab still highlighted. Works before the games
+# finish loading: with no games yet, Tab stays on the menu.
 start ^ Tonight
-key s => ^ Live sports: choose a sport
+key s => ^ By sport: choose a sport
 key Esc => ^ Tonight
-key Tab
+key Tab => Tonight's games, live ones first
+key Right => One sport's games
+key Enter => ^ By sport: choose a sport
+key Esc => One sport's games
+key Right => Finished games
 key Enter => ^ Replays: choose a sport
-key Esc => ^ Tonight
-key Right
-key Enter => ^ Live TV
-key Esc => ^ Tonight
-key Right
-key Enter => ^ Search
-key Esc => ^ Tonight
-key Right
-key Enter => ^ Settings
-key Esc => ^ Tonight
-key Left
-key Enter => ^ Search
+key Esc => Finished games
+key Right => Sports and news channels
+key Enter => > ESPN
+key Esc => Sports and news channels
+key Right => Find a team, player
+key Enter => ^ Find:
+key Esc => Find a team, player
+key Right => Video player, backup stream
+key Enter => > Video player
+key Esc => Video player, backup stream
+key Left => Find a team, player
+key Enter => ^ Find:

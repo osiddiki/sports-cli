@@ -4,6 +4,6 @@ start ^ Tonight
 click Replays => ^ Replays: choose a sport
 click Settings => ^ Settings
 click Live TV => ^ Live TV
-key s => ^ Live sports: choose a sport
+key s => ^ By sport: choose a sport
 click WNBA => ^ WNBA  \|
 click Soccer: MLS => MLS  \|

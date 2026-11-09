@@ -195,8 +195,8 @@ fn columns_header(columns: &[String], k: &Ink) -> El {
     let name = columns.first().cloned().unwrap_or_default();
     row().key("columns").h(24.0).pl(22.0).pr(14.0).items_center()
         .child(text(name).font(CAPS).color(k.faint).grow(1.0))
-        .child(text("SIDE").font(CAPS).color(k.faint).w(70.0))
-        .child(text("QUALITY").font(CAPS).color(k.faint).w(90.0))
+        .child(text(columns.get(1).cloned().unwrap_or_default()).font(CAPS).color(k.faint).w(70.0))
+        .child(text(columns.get(2).cloned().unwrap_or_default()).font(CAPS).color(k.faint).w(90.0))
         .child(text("SIGNAL").font(CAPS).color(k.faint).w(TICKS as f32 * 5.0 + 140.0))
 }
 

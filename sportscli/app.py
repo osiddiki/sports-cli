@@ -25,7 +25,7 @@ import urllib.parse
 import urllib.request
 from . import providers, relay, grading, checks, replays, smart_search, players, ad_mute, ai_ad_mute, breaks, tv, timeline
 from zoneinfo import ZoneInfo
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 UTC = dt.timezone.utc
 SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
@@ -61,26 +61,73 @@ CONFIG = pathlib.Path(os.environ.get('XDG_CONFIG_HOME', pathlib.Path.home() / '.
 # The short code a row or a title shows for its league, where lists used to show a row number.
 MARKS = {'nba': 'NBA', 'nfl': 'NFL', 'nhl': 'NHL', 'mlb': 'MLB', 'epl': 'EPL', 'mls': 'MLS', 'tv': 'TV'}
 HOME_LEAGUES = tuple(key for key in MARKS if key in LEAGUES)  # every Home row carries its mark
-HOME_ITEMS = [('replays', 'Replays'), ('tv', 'Live TV'), ('search', 'Search'), ('settings', 'Settings')]
+HOME_ITEMS = [('tonight', 'Tonight'), ('sports', 'By sport'), ('replays', 'Replays'), ('tv', 'Live TV'), ('search', 'Search'),
+              ('settings', 'Settings')]
+
+# What each Home tab holds, on the status line while it is highlighted.
+MENU_NOTES = {'tonight': "Tonight's games, live ones first. Enter or Down goes to them.",
+              'sports': "One sport's games, today or any other day.",
+              'replays': 'Finished games, to watch from the start.',
+              'tv': 'Sports and news channels, live.',
+              'search': 'Find a team, player, game or channel.',
+              'settings': 'Video player, backup stream, ad muting and add-ons.'}
+
+# One line under Settings that says what the selected setting does.
+SETTING_NOTES = {
+    'Video player': 'The program that plays the video. IINA and Celluloid are optional.',
+    'Buffer before playing': 'More seconds play smoother on a slow connection but start later.',
+    'Show video in this window': 'Draws the video as text in this window instead of a video window.',
+    'Backup stream for live games': 'Keeps a second source ready and switches to it if the first one stalls.',
+    'When an ad is detected': 'Mute only, show a break screen, or show another game in a corner.',
+    'Ad mute': 'Mutes the sound during ads. Mute ads needs the ad detector.',
+    'Ad detector': 'Spots ads on this computer. Installing it downloads about 150 MB.',
+    'Extra sources add-on': 'The address of an optional add-on that lists more sources.',
+    'Pay-per-view helper folder': 'Where the optional pay-per-view helper lives. Leave it on default.',
+}
+
+# Footers that the terminal and the remote front ends share.
+SCHEDULE_ACTIONS = 'Enter see streams   [ ] other days   f filter   r reload   Esc back'
+REPLAY_ACTIONS = 'Enter see streams   s sport   f filter   r reload   Esc back'
+CHANNEL_ACTIONS = 'Enter see streams   f find   r reload   Esc back'
+SITE_ACTIONS = 'Enter see streams   Esc back'
 
 HELP_LINES = [
-    'EVERYWHERE     1-9 open that row   / search   , settings   ? help   q quit',
-    'HOME           Up: the menu (Replays, Live TV, Search, Settings), Left/Right to choose    1-4 open them    Tab: menu or games    s: one sport\'s schedule',
-    'MOVE           Up/Down or j/k: select    Enter, Right or l: open    Esc, Left, h or Backspace: back',
-    'LISTS          f: filter this list    r: refresh    s: change sport (games and replays)',
-    'SCHEDULE       [ and ]: previous or next day',
-    'SOURCES        Enter: play    x: test    i: show media URL    o: provider    a: home or away feed',
-    '               g: rank by checks    u: play a pasted media URL    v: show sources that failed checks',
-    'SEARCH         Type a team, player, game or channel    Up/Down: select    Esc: back    Ctrl-X: quit',
-    'SETTINGS       Player, cache, terminal video, backup source, ad breaks, ad mute, ad detector, add-on, PPV',
-    'AD MUTE        Settings, this run: off, marked replays, preview (sound stays on), or mute ads',
-    'AD DETECTOR    Choose Ad detector in Settings to install it. Opening the app does not download it.',
-    'START          --tv: live TV    --league nba: a schedule    --search: search',
-    'While a stream plays, keys go to mpv: Space pause, m mute, f fullscreen, q back here.',
-    'REPLAY         In the window, Left/Right jump 10s and Shift jumps a minute. [ ] jump a period.',
-    '               mpv keeps its own seek keys. [ ] jump a period there too, when the replay has them.',
-    'Finished games and explicitly offline sources are hidden from live lists.',
-    'Keep this terminal open while playing a local relay stream.',
+    'GETTING AROUND',
+    '  Up and Down move, Enter opens or plays, Esc goes back, q quits.',
+    '  / searches for a team, player or channel. The comma key opens Settings.',
+    '',
+    'HOME',
+    '  Tonight\'s games are listed. Press Up from the first game for the menu:',
+    '  By sport, Replays, Live TV, Search and Settings. Left and Right choose.',
+    '  1 to 9 open that row of any list. s shows one sport\'s schedule.',
+    '',
+    'LISTS',
+    '  f filters the list (on Live TV, finds a channel), r reloads it,',
+    '  s changes the sport.',
+    '  On a schedule, [ and ] show the previous or next day.',
+    '',
+    'CHOOSING A STREAM',
+    '  Each game has several numbered streams, the best first, each checked and',
+    '  marked Smooth, OK or May lag. Enter plays the selected one; its number',
+    '  plays it too. If one does not play, go back and pick the next number.',
+    '  v shows streams that did not work. r checks them all again.',
+    '  a switches home and away broadcasts, o shows one site at a time.',
+    '',
+    'WHILE A GAME PLAYS',
+    '  The video opens in its own window. Space pauses, m mutes,',
+    '  f fills the screen, and q closes the video and comes back here.',
+    '  Keep this window open while the video plays.',
+    '',
+    'REPLAYS',
+    '  Left and Right jump 10 seconds; with Shift, a minute.',
+    '  [ and ] jump to the previous or next period when the replay has them.',
+    '',
+    'MORE KEYS ON STREAMS',
+    '  i shows the stream link, u plays a link you paste, g ranks by past checks.',
+    '',
+    'SETTINGS',
+    '  Choose the video player, the backup source, ad muting and add-ons.',
+    '  Live lists hide finished games and sources that stopped working.',
 ]
 
 AD_MUTE_CHOICES = (
@@ -213,6 +260,7 @@ class FeedDisplay:
     quality: str
     check: str
     detail: str
+    site: str = ''
 
 
 @dataclass
@@ -267,9 +315,9 @@ def bundle_replays(hits, league=None):
     return bundles
 
 
-def check_age(seconds):
-    minutes = max(0, int(seconds // 60))
-    return 'now' if minutes == 0 else f'{minutes}m' if minutes < 60 else f'{minutes // 60}h'
+# What a source's check status says on screen; anything else is a failure such as "HTTP 404".
+CHECK_WORDS = {'checking': 'Checking…', 'testing': 'Checking…', 'Opening': 'Opening…', 'Inspecting': 'Opening…',
+               '?': 'Not checked', 'n/a': 'Not checked', None: 'Not checked'}
 
 
 def listed_height(feed):
@@ -297,18 +345,18 @@ def describe_feed(feed, record=None, automatic=None):
             details.append(part)
     record = record if isinstance(record, dict) else {}
     height = record.get('height')
-    quality = f'{height}p' if isinstance(height, int) and height >= 144 else f'~{listed_quality}' if listed_quality else '-'
-    status = {'checking':'Checking', 'testing':'Testing', 'OK':'OK', '?':'Unverified', 'n/a':'Checked on play'}.get(
-        automatic, automatic or ('Checked on play' if feed.kind in ('ppv', 'web') else 'Unverified'))
-    if isinstance(automatic, str) and automatic.split(' ')[0] == 'OK' and isinstance(record.get('speed'), (int, float)):
-        status = ('Smooth', 'OK', 'May lag')[smoothness(record['speed'])] + automatic[2:]
-    grade = grading.summary(record)
-    if grade:
-        grade = re.sub(r'\s+\d+p$', '', grade)
-        status += f' {grade}'
-    if not details and feed.kind == 'candidate': details.append('Player resolves on selection')
+    quality = f'{height}p' if isinstance(height, int) and height >= 144 else listed_quality or '-'
+    if automatic == 'OK':
+        status = ('Smooth', 'OK', 'May lag')[smoothness(record['speed'])] if isinstance(record.get('speed'), (int, float)) else 'OK'
+    elif automatic in CHECK_WORDS:
+        status = CHECK_WORDS[automatic]
+    else:
+        status = 'Not working'
+        details.insert(0, 'Did not play when checked. Pick another source.' if automatic == 'Failed' else
+                       'Offline right now. Pick another source.')
+    if feed.kind == 'web': details.append('Opens in your web browser.')
     return FeedDisplay(f'{feed.source} / {server}', feed.side.upper() if feed.side != 'unknown' else '-',
-                       quality, status, ' | '.join(details))
+                       quality, status, '  ·  '.join(details))
 
 
 class DependencyError(RuntimeError):
@@ -844,6 +892,21 @@ def quick_probe_feed(feed):
         if temporary_relay: temporary_relay.close()
 
 
+def fit_channels(text, width):
+    """As many whole channel names as fit, then how many more: "NBA TV, ESPN +2"."""
+    names = [name for name in text.split(', ') if name]
+    shown = []
+    for name in names:
+        rest = len(names) - len(shown) - 1
+        if len(', '.join(shown + [name]) + (f' +{rest}' if rest else '')) > width: break
+        shown.append(name)
+    hidden = len(names) - len(shown)
+    if not shown and names:
+        tail = f' +{hidden - 1}' if hidden > 1 else ''
+        return fit_words(names[0], width - len(tail)) + tail
+    return ', '.join(shown) + (f' +{hidden}' if hidden else '')
+
+
 def fit_words(text, width):
     """Text cut to width at a comma or space, ending in an ellipsis, so no name is cut in half."""
     if len(text) <= width: return text
@@ -1041,6 +1104,51 @@ class App:
         shown = {id(f) for f in self.visible_feeds()}
         return sum(1 for f in self.feeds if id(f) not in self.hidden_feeds and id(f) not in shown and self.failed_check(f))
 
+    def feed_status(self, feed):
+        """A source's check status: opening, being checked, or the result of its last check."""
+        opening = self.action_current and self.action_current[1] == self.feed_generation and self.action_current[2] is feed
+        if opening: return 'Opening' if self.action_current[3] == 'play' else 'Inspecting'
+        if (self.feed_generation, id(feed)) in self.manual_checks: return 'testing'
+        return self.manual_status.get(id(feed), self.auto_checks.get(id(feed)))
+
+    def feed_record(self, feed):
+        history = self.config.get('health') if isinstance(self.config.get('health'), dict) else {}
+        record = dict(history.get(grading.source_key(feed), {}))
+        if id(feed) in self.auto_heights: record['height'] = self.auto_heights[id(feed)]
+        if id(feed) in self.auto_speeds: record['speed'] = self.auto_speeds[id(feed)]
+        return record
+
+    def ppv_ready(self):
+        directory = self.config.get('resolver_dir') or os.environ.get('NBA_RESOLVER_DIR', '') or str(pathlib.Path(__file__).resolve().parent.parent / 'resolver')
+        entry = pathlib.Path(directory).expanduser() / 'src/server.js'
+        return entry.is_file() and (entry.parent.parent / 'node_modules').is_dir() and bool(shutil.which('node'))
+
+    def source_views(self, feeds):
+        """Sources as listed: Stream 1, Stream 2 in rank order (the number also plays it), the best working one marked
+        Recommended and a failed one's reason on a second line. The site behind each stays in site, for i and the window."""
+        views = [describe_feed(feed, self.feed_record(feed), self.feed_status(feed)) for feed in feeds]
+        best = next((index for index, view in enumerate(views) if view.check in ('Smooth', 'OK')), None)
+        ppv = any(feed.kind == 'ppv' for feed in feeds) and self.ppv_ready()
+        rows = []
+        for index, (feed, view) in enumerate(zip(feeds, views)):
+            notes = [view.detail if view.check == 'Not working' else '']
+            if feed.kind == 'ppv': notes.append('looked up when you press Enter' if ppv else 'needs a one-time setup first')
+            rows.append(replace(view, name=f'Stream {index + 1}' + ('  ·  Recommended' if index == best else ''),
+                                detail='  ·  '.join(filter(None, notes)), site=view.name))
+        return rows
+
+    def sided(self):
+        """Whether the listed streams name home and away broadcasts, which only live games have."""
+        return self.feed_context == 'live' and any(feed.side != 'unknown' for feed in self.visible_feeds())
+
+    def feed_actions(self):
+        """The Sources footer: the keys a first-time viewer needs; Help lists the rest."""
+        failed = (sum(1 for f in self.feeds if id(f) not in self.hidden_feeds and self.failed_check(f))
+                  if self.show_failed else self.hidden_failed())
+        return ('Enter play   ' + ('a home/away   ' if self.sided() else '')
+                + (f'v hide {failed} not working   ' if self.show_failed and failed else f'v show {failed} not working   ' if failed else '')
+                + 'f filter   r check again   Esc back')
+
     def failed_check(self, feed):
         status = self.manual_status.get(id(feed), self.auto_checks.get(id(feed)))
         return status == 'Failed' or isinstance(status, str) and status.startswith('HTTP ')
@@ -1084,7 +1192,7 @@ class App:
         if not live: rows.append((None, '      —', 'empty'))
         for i, hit in live:
             if hit.kind == 'side':
-                rows.append((i, f'       {hit.side.title()}  ·  {hit.count} source{"s" if hit.count != 1 else ""}', ''))
+                rows.append((i, f'       {hit.side.title()} broadcast  ·  {hit.count} stream{"s" if hit.count != 1 else ""}', ''))
             else:
                 title = f'{hit.item.away_nickname} at {hit.item.home_nickname}' if compact else hit.title
                 rows.append((i, ('    ' if compact else '      ') + title, 'live'))
@@ -1093,8 +1201,8 @@ class App:
         rows.append((None, '   REPLAYS', 'heading'))
         if not archived: rows.append((None, '      —', 'empty'))
         for i, hit in archived:
-            when = hit.item.date.strftime('%b %d') if hit.item.date else 'Date unknown'
-            sources = f'  ·  {len(hit.item.sources)} sources' if len(hit.item.sources) > 1 else ''
+            when = f'{hit.item.date:%b} {hit.item.date.day}' if hit.item.date else 'Date unknown'
+            sources = f'  ·  {len(hit.item.sources)} streams' if len(hit.item.sources) > 1 else ''
             title = hit.title
             if compact:
                 parts = re.split(r'\s+(?:vs\.?|versus)\s+', title, maxsplit=1, flags=re.I)
@@ -1106,20 +1214,25 @@ class App:
                                      if matches and matches[0][1] >= .9 else part)
                     title = ' vs '.join(names)
             prefix = '   ' if compact else '      '
-            rows.append((i, f'{prefix}{when}  {title}{sources if not compact else ""}', ''))
+            rows.append((i, f'{prefix}{when:<6}  {title}{sources if not compact else ""}', ''))
         if upcoming:
             rows.append((None, '   UPCOMING', 'heading'))
             for i, hit in upcoming:
-                when = hit.item.start.astimezone().strftime('%b %d %I%p' if compact else '%a %b %d  %I:%M %p')
+                start = hit.item.start.astimezone()
+                when = (start.strftime('%b %d %I%p') if compact else
+                        f'{start:%a %b} {start.day}, ' + f'{start:%I:%M %p}'.lstrip('0'))
                 title = f'{hit.item.away_nickname} at {hit.item.home_nickname}' if compact else hit.title
-                rows.append((i, f'{"    " if compact else "      "}{when}  {title}', ''))
+                rows.append((i, f'{"    " if compact else "      "}{when:<19}  {title}', ''))
         if matching_players:
             rows.append((None, '   ' + player_heading, 'heading'))
             for i, hit in matching_players:
                 rows.append((i, ('   ' if compact else '      ') + player_text(hit), ''))
         if other:
             rows.append((None, '   OTHER TEAMS', 'heading'))
+            shown = set()
             for i, hit in other:
+                if (hit.league, hit.title) in shown: continue
+                shown.add((hit.league, hit.title))
                 rows.append((i, f'      {LEAGUES[hit.league][0]}  {hit.title}', ''))
         channels = [(i, hit) for i, hit in enumerate(hits) if hit.kind == 'channel']
         if channels:
@@ -1136,12 +1249,23 @@ class App:
             else: lines.append(hint)
         return lines
 
+    def keys_line(self, y, text, attr=0):
+        """A footer line with each hint's key in bold, so "a home/away" reads as a key and not the word a."""
+        x = 1
+        for part in re.split(r'(\s{3,})', text):
+            if part.strip():
+                key = re.match(r'(\[ \]|\S+)', part).group(1)
+                self.put(y, x, key, attr | curses.A_BOLD); self.put(y, x+len(key), part[len(key):], attr)
+            x += len(part)
+
     def footer(self, actions):
-        """This screen's actions, then the keys that work on every screen."""
+        """This screen's actions, then the keys that work on every screen except the one you are on."""
         h, w = self.scr.getmaxyx()
         lines = self.action_lines(actions)
-        for y, line in enumerate(lines, h-3-len(lines)): self.put(y, 1, line)
-        self.put(h-3, 1, '/ search   , settings   ? help   q quit' if w >= 48 else '/ search   , settings   q quit')
+        for y, line in enumerate(lines, h-3-len(lines)): self.keys_line(y, line)
+        here = {'settings': ',', 'help': '?'}.get(self.mode)
+        hints = [hint for hint in ('/ search', ', settings', '? help', 'q quit') if hint[0] != here and (w >= 48 or hint != '? help')]
+        self.keys_line(h-3, '   '.join(hints), curses.A_DIM)
 
     def busy(self):
         """Whether background work the user is waiting on is still running."""
@@ -1157,7 +1281,7 @@ class App:
         self.scr.erase()
         h, w = self.scr.getmaxyx()
         self.put(0, 1, 'SPORTS CLI', self.accent_color)
-        heading = {'home':'Tonight', 'settings':'Settings', 'search':'Search', 'leagues':'Live sports: choose a sport' if self.section == 'sports' else 'Replays: choose a sport', 'games':'Games', 'replays':'Replays', 'replay_sources':'Replay sites', 'channels':'Live TV', 'feeds':'Sources', 'help':'Help'}
+        heading = {'home':'Tonight', 'settings':'Settings', 'search':'Search', 'leagues':'By sport: choose a sport' if self.section == 'sports' else 'Replays: choose a sport', 'games':'Games', 'replays':'Replays', 'replay_sources':'Replay sites', 'channels':'Live TV', 'feeds':'Streams', 'help':'Help'}
         title = heading.get(self.mode, '')
         self.put(1, 1, title, curses.A_BOLD)
         if self.busy(): self.put(1, len(title) + 2, self.spinner(), self.accent_color)
@@ -1167,8 +1291,8 @@ class App:
             self.scr.refresh(); return
         if self.mode != 'search': self.search_draw_signature = None
         if self.mode == 'search':
-            self.put(2, 1, 'Search: ' + (self.search_query or '') + '_', curses.A_BOLD)
-            lines = self.search_rows(w); capacity = max(1, h-7)
+            self.put(2, 1, 'Find: ' + (self.search_query or '') + '_', curses.A_BOLD)
+            lines = self.search_rows(w); capacity = max(1, h-9)
             signature = (h, w, self.search_query, self.search_position, self.message, tuple(lines))
             if signature != self.search_draw_signature and hasattr(self.scr, 'redrawwin'):
                 try: self.scr.redrawwin()
@@ -1176,34 +1300,40 @@ class App:
             self.search_draw_signature = signature
             cursor = next((i for i, (index, _, _) in enumerate(lines) if index == self.search_position), 0)
             start = max(0, cursor-capacity+1)
-            for y, (index, text, style) in enumerate(lines[start:start+capacity], 3):
+            for y, (index, text, style) in enumerate(lines[start:start+capacity], 4):
                 selected = index is not None and index == self.search_position
-                attr = (curses.A_REVERSE if selected else self.live_color if style == 'live' else
-                        curses.A_BOLD if style == 'team' else curses.A_DIM if style in ('heading', 'player-heading', 'channel-heading', 'empty') else 0)
+                attr = (curses.A_REVERSE if selected else curses.A_BOLD if style in ('live', 'team') else
+                        curses.A_DIM if style in ('heading', 'player-heading', 'channel-heading', 'empty') else 0)
                 self.put(y, 2, f'{">" if selected else " "} {text}', attr)
+                # Live games carry Home's red light.
+                if style == 'live': self.put(y, 2 + len(text) - len(text.lstrip()), '●', curses.A_REVERSE | curses.A_BOLD if selected else self.on_air)
+            self.more_below(4+capacity, sum(1 for line in lines[start+capacity:] if line[0] is not None))
             if not self.search_results:
                 waiting = bool(self.search_inflight & self.search_needed or self.player_due or self.player_key in self.player_inflight)
                 text = 'Try: stephen curry  |  lakers today  |  mavs vs rockets' if not self.search_query else self.spinner() + ' Looking for matches' if waiting else 'Keep typing a player, team or league.'
                 self.put(4, 2, text)
-            self.put(h-4, 1, 'Type to search   Up/Down select   Enter open' if w >= 55 else 'Type   ↑↓ select   Enter open')
-            self.put(h-3, 1, 'Esc back   Ctrl-U clear   Ctrl-X quit')
+            self.put(h-4, 1, 'Type to search   ↑↓ select   Enter open' if w >= 55 else 'Type   ↑↓ select   Enter open')
+            self.keys_line(h-3, 'Esc back   Ctrl-U clear', curses.A_DIM)
         elif self.mode == 'help':
-            rows = max(1, h-6)
+            rows = max(1, h-7)
             for y, line in enumerate(HELP_LINES[self.help_scroll:self.help_scroll+rows], 3):
-                self.put(y, 2, line)
-            self.put(h-3, 1, 'j/k scroll   Esc back   q quit')
+                self.put(y, 2, line, curses.A_BOLD if line and not line.startswith(' ') else 0)
+            self.more_below(3+rows, len(HELP_LINES)-self.help_scroll-rows)
+            self.keys_line(h-3, '↑↓ scroll   Esc back   q quit')
         elif self.mode == 'home':
             actions = self.home_actions()
             lines = self.home_lines()
             sections = [line for line in lines if line[1] == 'section']
             listed = [line for line in lines if line[1] != 'section']
-            x = 2
+            x, in_games = 2, self.home_index >= len(HOME_ITEMS)
             for index, _, label in sections:
-                selected = index == self.home_index
-                self.put(3, x, f' {label} ', curses.A_REVERSE if selected else 0); x += len(label) + 4
-            self.put(4, 2, '─' * max(0, min(w-4, x-2)), curses.A_DIM)
+                # Tonight is the tab you are on while the games have focus.
+                attr = (curses.A_REVERSE if index == self.home_index else
+                        curses.A_BOLD | curses.A_UNDERLINE if index == 0 and in_games else 0)
+                self.put(3, x, f' {label} ', attr); x += len(label) + 3
+            self.put(4, 2, f'{"─" * (w-14)}  {"↑ menu" if in_games else ""}', curses.A_DIM)
             top = 5
-            capacity = max(1, h-4-len(self.action_lines(actions))-top)
+            capacity = max(1, h-5-len(self.action_lines(actions))-top)
             # The sections are not among these lines. Keep the scroll the games were at, or the games jump to the top.
             cursor = next((i for i, (index, _, _) in enumerate(listed) if index == self.home_index), None)
             if cursor is None: start = self.home_scroll
@@ -1213,80 +1343,88 @@ class App:
             title_width = max(12, min(longest, w-34))
             for y, (index, kind, value) in enumerate(listed[start:start+capacity], top):
                 if kind == 'heading': self.put(y, 2, value, curses.A_DIM); continue
-                selected = index == self.home_index
-                attr = curses.A_REVERSE if selected else curses.A_BOLD if value.live else 0
-                title = value.title if len(value.title) <= title_width else value.title[:title_width-1] + '…'
-                self.put(y, 2, f'{">" if selected else " "} {value.mark:<4}   {title:<{title_width}}  '
-                               f'{"LIVE" if value.live else value.when:>8}', attr)
-                if value.live: self.put(y, 9, '●', self.on_air | (curses.A_REVERSE if selected else 0))
-                self.put(y, title_width+23, fit_words(value.channels, w-title_width-24), attr if selected else curses.A_DIM)
+                self.game_row(y, value, index == self.home_index, title_width, w, dim=not in_games)
+            self.more_below(top+capacity, sum(1 for line in listed[start+capacity:] if line[1] == 'game'))
             if not listed:
                 self.put(top, 2, self.spinner() + " Loading tonight's games" if self.tonight_loading else
                          'No games tonight. Press s to choose a sport.')
             self.footer(actions)
         elif self.mode == 'settings':
-            for y, (label, value, _) in enumerate(self.settings_rows(), 3):
+            rows = self.settings_rows()
+            for y, (label, value, _) in enumerate(rows, 3):
                 selected = y-3 == self.settings_index
-                self.put(y, 2, f'{">" if selected else " "} {label:<32} {value}', curses.A_REVERSE if selected else 0)
+                line = f'{label:<30} {value}'
+                self.put(y, 2, f'> {line:<{w-8}}' if selected else f'  {line}', curses.A_REVERSE if selected else 0)
+            self.put(4+len(rows), 4, SETTING_NOTES.get(rows[self.settings_index][0], ''), curses.A_DIM)
             self.footer('Enter change   Esc back')
         elif self.mode == 'leagues':
             keys = list(LEAGUES)
-            rows = max(1, h-7)
+            rows = max(1, h-8)
             start = max(0, self.league_index-rows+1)
             for y, key in enumerate(keys[start:start+rows], 3):
                 selected = start+y-3 == self.league_index
-                self.put(y, 2, f'{">" if selected else " "} {LEAGUES[key][0]}', curses.A_REVERSE if selected else 0)
+                self.put(y, 2, f'{">" if selected else " "} {LEAGUES[key][0]:<{w-8}}' if selected else f'  {LEAGUES[key][0]}',
+                         curses.A_REVERSE if selected else 0)
+            self.more_below(3+rows, len(keys)-start-rows)
             self.footer('Enter choose   Esc back')
         elif self.mode == 'games':
-            self.put(2, 1, f'{LEAGUES[self.league][0]}  |  {self.day:%a %b %d} (ET date)  |  search: {self.search or "all"}')
-            actions = 'Enter sources   s sport   [ ] date   f filter   r refresh   Esc back'
-            rows = max(1, h-6-len(self.action_lines(actions)))
+            zone = dt.datetime.now().astimezone().strftime('%Z')
+            self.put(2, 1, f'{LEAGUES[self.league][0]}  ·  {self.day:%A, %B} {self.day.day}  ·  times in {zone}'
+                     + (f'  ·  filter: {self.search}' if self.search else ''), curses.A_DIM)
+            actions = SCHEDULE_ACTIONS
+            rows = max(1, h-7-len(self.action_lines(actions)))
             start = max(0, self.gi-rows+1)
+            title_width = max(12, min(max((len(game.title) for game in self.games), default=12), w-30))
             for y, game in enumerate(self.games[start:start+rows], 3):
-                selected = start+y-3 == self.gi
-                when = game.start.astimezone().strftime('%a %b %d  %I:%M %p %Z')
-                status = {'live':'LIVE', 'upcoming':'UPCOMING', 'redzone-live':'LIVE', 'redzone':'CHANNEL'}.get(game.state, '?')
-                if game.id == REDZONE: when = f'{"Live TV channel":<24}'
-                attr = curses.A_REVERSE if selected else self.live_color if game.state in ('live', 'redzone-live') else 0
-                self.put(y, 2, f'{">" if selected else " "} {status}  {when}  {game.title}', attr)
+                line = (GameLine(MARKS.get(game.league, ''), game.state == 'redzone-live', 'channel', game.title, '')
+                        if game.id == REDZONE else GameLine.of(game))
+                self.game_row(y, line, start+y-3 == self.gi, title_width, w, mark=False)
+            self.more_below(3+rows, len(self.games)-start-rows)
             if not self.games:
                 self.put(4, 2, self.spinner() + ' Loading schedule' if self.loading_games else 'No upcoming or live games. Change date or search.')
             self.footer(actions)
         elif self.mode == 'replays':
-            self.put(2, 1, f'{LEAGUES[self.league][0]}  |  recent replays  |  search: {self.replay_search or "all"}')
-            actions = 'Enter sources   s sport   f search titles   r refresh   Esc back'
-            capacity = max(1, h-6-len(self.action_lines(actions)))
+            self.put(2, 1, f'{LEAGUES[self.league][0]}  ·  recent games' + (f'  ·  filter: {self.replay_search}' if self.replay_search else ''),
+                     curses.A_DIM)
+            actions = REPLAY_ACTIONS
+            capacity = max(1, h-7-len(self.action_lines(actions)))
             drawn = replays.lines(self.replays)
             current = self.replays[self.ri] if self.replays else None
             selected_line = next((i for i, line in enumerate(drawn) if line.game is current), 0)
             start = max(0, selected_line-capacity+1)
+            text_width = max(12, min(max((len(line.text) for line in drawn if line.game), default=12), w-18))
             for y, line in enumerate(drawn[start:start+capacity], 3):
                 if line.game is None:
                     self.put(y, 2, f'  {line.text}', curses.A_DIM)
                 else:
                     selected = line.game is current
-                    self.put(y, 2, f'{">" if selected else " "} {line.text}  {line.detail}',
-                             curses.A_REVERSE if selected else 0)
+                    text = line.text if len(line.text) <= text_width else line.text[:text_width-1] + '…'
+                    self.put(y, 2, f'{">" if selected else " "} {text:<{w-8 if selected else text_width}}', curses.A_REVERSE if selected else 0)
+            self.more_below(3+capacity, sum(1 for line in drawn[start+capacity:] if line.game is not None))
             if not self.replays:
                 self.put(4, 2, self.spinner() + ' Searching replay catalogs' if self.replay_pending else 'No replays found. Try another search or league.')
             self.footer(actions)
         elif self.mode == 'channels':
             shown = self.visible_channels()
-            self.put(2, 1, f'{len(shown)} channels  |  filter: {self.channel_filter or "all"}')
-            actions = 'Enter sources   f filter   r refresh   Esc back'
-            rows = max(1, h-6-len(self.action_lines(actions)))
+            self.put(2, 1, f'{len(shown)} channels match "{self.channel_filter}"  ·  f changes it' if self.channel_filter else
+                     f'Sports and news first, {len(shown)} channels in all  ·  f finds a channel', curses.A_DIM)
+            actions = CHANNEL_ACTIONS
+            rows = max(1, h-7-len(self.action_lines(actions)))
             start = max(0, self.ci-rows+1)
             for y, channel in enumerate(shown[start:start+rows], 3):
                 selected = start+y-3 == self.ci
                 count = len(channel.sources)
-                self.put(y, 2, f'{">" if selected else " "} {channel.name}  ({count} source{"s" if count != 1 else ""})',
-                         curses.A_REVERSE if selected else curses.A_BOLD if channel.featured else 0)
+                name = f'{">" if selected else " "} {channel.name:<{max(20, w-24)}.{max(20, w-24)}} '
+                sources = f'{count} stream{"s" if count != 1 else ""}'
+                self.put(y, 2, name, curses.A_REVERSE if selected else 0)
+                self.put(y, 2+len(name), sources, curses.A_REVERSE if selected else curses.A_DIM)
+            self.more_below(3+rows, len(shown)-start-rows)
             if not shown:
-                self.put(4, 2, self.spinner() + ' Loading channels' if self.channels_loading else 'No channels match. Press f to change the filter.')
+                self.put(4, 2, self.spinner() + ' Loading channels' if self.channels_loading else 'No channels match. Press f to search again.')
             self.footer(actions)
         elif self.mode == 'replay_sources':
             self.put(2, 1, self.current_bundle.title)
-            actions = 'Enter sources   Esc back'
+            actions = SITE_ACTIONS
             rows = max(1, h-6-len(self.action_lines(actions)))
             start = max(0, self.bundle_index-rows+1)
             for y, item in enumerate(self.current_bundle.sources[start:start+rows], 3):
@@ -1302,66 +1440,57 @@ class App:
                 self.put(3, 1, 'Live TV')
             else:
                 game = self.games[self.gi]
-                self.put(2, 1, f'{game.title}  |  {game.start.astimezone().strftime("%a %b %d %I:%M %p %Z")}')
-                self.put(3, 1, 'TV: ' + (', '.join(game.broadcasts) or 'not listed'))
+                start = game.start.astimezone()
+                self.put(2, 1, f'{game.title}  ·  {start:%a %b} {start.day}, ' + f'{start:%I:%M %p}'.lstrip('0'))
+                self.put(3, 1, 'On TV: ' + (', '.join(game.broadcasts) or 'not listed'), curses.A_DIM)
             fs = self.visible_feeds()
             ad_mode = 'AI NBA' if self.ai_ad_mute else 'AI preview' if self.ai_ad_observe else 'marked replays' if self.ad_mute else 'off'
-            context = [self.player.upper()]
-            if self.filter != 'all': context.append(f'side: {self.filter}')
-            if self.provider_filter != 'all': context.append(f'source: {self.provider_filter}')
-            if self.feed_search: context.append(f'search: {self.feed_search}')
-            if self.cache != 15: context.append(f'cache: {self.cache}s')
+            context = [] if self.player == 'mpv' else [f'Plays in {self.player.upper()}']
+            if self.filter != 'all': context.append(f'{self.filter} broadcast only')
+            if self.provider_filter != 'all': context.append(f'only {self.provider_filter}')
+            if self.feed_search: context.append(f'filter: {self.feed_search}')
+            if self.cache != 15: context.append(f'buffer {self.cache}s')
             if ad_mode != 'off': context.append(f'ad mute: {ad_mode}')
             if self.ai_ad_mute and self.ad_breaks != 'mute': context.append('breaks: ' + breaks.LABELS[self.ad_breaks])
-            if self.rank_by_checks: context.append('ranked')
-            if not self.dual_stream and self.feed_context in ('live', 'tv'): context.append('backup: off')
+            if self.rank_by_checks: context.append('ranked by past checks')
+            if not self.dual_stream and self.feed_context in ('live', 'tv'): context.append('backup off')
             self.put(4, 1, '  ·  '.join(context), curses.A_DIM)
             self.fi = min(self.fi, max(0, len(fs)-1))
-            compact = w < 65
-            name_width = max(10, min(30, w-25)) if compact else max(14, min(50, w-40))
-            columns = (f'{"SOURCE":<{name_width}}  {"SIDE":5} CHECK' if compact else
-                       f'{"SOURCE":<{name_width}}  {"SIDE":5} {"QUALITY":7} CHECK')
+            sided = self.sided()
+            name_width = max(14, min(50, w-(37 if sided else 31)))
+            columns = f'{"STREAM":<{name_width}}  ' + (f'{"FEED":5} ' if sided else '') + f'{"PICTURE":8} STATUS'
             self.put(5, 4, columns, curses.A_DIM)
-            # Only live games have home and away broadcasts to choose between.
+            actions = self.feed_actions()
+            bottom = h-3-len(self.action_lines(actions))
+            views = self.source_views(fs)
+            bottom -= 1
+            # Rows take one line, or two when there is something to say about the source.
+            heights = [2 if view.detail or len(view.name) > name_width else 1 for view in views]
+            start, used = self.fi, heights[self.fi] if fs else 0
+            while start > 0 and used + heights[start-1] <= bottom-6: start -= 1; used += heights[start]
+            y = 6
+            for index in range(start, len(fs)):
+                if y + heights[index] > bottom: break
+                view, selected = views[index], index == self.fi
+                short_name = view.name if len(view.name) <= name_width else view.name[:name_width-1] + '…'
+                attr = (curses.A_REVERSE if selected else curses.A_DIM if view.check == 'Not working' else
+                        curses.A_BOLD if view.name.endswith('Recommended') else 0)
+                row = f'{short_name:<{name_width}}  ' + (f'{view.side:5} ' if sided else '') + f'{view.quality:8} {view.check}'
+                row = f'{row:<{w-6}}' if selected else row
+                self.put(y, 2, f'{">" if selected else " "} {row}', attr)
+                if heights[index] == 2:
+                    detail = ' '.join(filter(None, [view.name if short_name != view.name else '', view.detail]))
+                    self.put(y+1, 4, detail, curses.A_DIM)
+                y += heights[index]
+            else:
+                index = len(fs)
+            self.more_below(bottom, len(fs) - index)
             failed = (sum(1 for f in self.feeds if id(f) not in self.hidden_feeds and self.failed_check(f))
                       if self.show_failed else self.hidden_failed())
-            actions = ('Enter play   x test   i inspect   u paste URL   ' + ('a side   ' if self.feed_context == 'live' else '')
-                       + 'o source   f filter   g rank   ' + ('s sport   ' if self.feed_context != 'tv' else '')
-                       + (f'v hide {failed} failed   ' if self.show_failed and failed else f'v show {failed} failed   ' if failed else '')
-                       + 'r refresh   Esc back')
-            bottom = h-3-len(self.action_lines(actions))
-            rows = max(1, (bottom-6)//2)
-            start = max(0, self.fi-rows+1)
-            for index, feed in enumerate(fs[start:start+rows]):
-                y = 6 + index*2
-                selected = start+index == self.fi
-                history = self.config.get('health') if isinstance(self.config.get('health'), dict) else {}
-                opening = self.action_current and self.action_current[1] == self.feed_generation and self.action_current[2] is feed
-                status = (('Opening' if self.action_current[3] == 'play' else 'Inspecting') if opening else
-                          'testing' if (self.feed_generation, id(feed)) in self.manual_checks else
-                          self.manual_status.get(id(feed), self.auto_checks.get(id(feed))))
-                if id(feed) in self.auto_checked_at and status == self.auto_checks.get(id(feed)) and id(feed) not in self.manual_status:
-                    status = f'{status} {check_age(time.time() - self.auto_checked_at[id(feed)])}'
-                record = dict(history.get(grading.source_key(feed), {}))
-                if id(feed) in self.auto_heights: record['height'] = self.auto_heights[id(feed)]
-                if id(feed) in self.auto_speeds: record['speed'] = self.auto_speeds[id(feed)]
-                view = describe_feed(feed, record, status)
-                short_name = view.name if len(view.name) <= name_width else view.name[:name_width-1] + '…'
-                attr = curses.A_REVERSE if selected else 0
-                row = (f'{short_name:<{name_width}}  {view.side:5} {view.check}' if compact else
-                       f'{short_name:<{name_width}}  {view.side:5} {view.quality:7} {view.check}')
-                self.put(y, 2, f'{">" if selected else " "} {row}', attr)
-                if y+1 < bottom:
-                    fallback = {'ppv':'Uses local resolver', 'web':'Browser-only; no media URL'}.get(feed.kind, 'Direct stream')
-                    detail = view.detail or fallback
-                    if feed.kind == 'web' and view.detail: detail = fallback + ' | ' + view.detail
-                    if short_name != view.name: detail = view.name + ' | ' + detail
-                    if compact and view.quality != '-': detail = view.quality + ' | ' + detail
-                    self.put(y+1, 4, detail, attr if selected else curses.A_DIM)
             if not fs:
-                self.put(6, 2, self.spinner() + ' Looking for sources' if self.feed_pending else
-                         f'All {failed} sources failed their checks. Press v to show them or r to check again.' if failed and not self.show_failed else
-                         'No sources available. Refresh near game time or change the filter.')
+                self.put(6, 2, self.spinner() + ' Looking for streams' if self.feed_pending else
+                         f'None of the {failed} streams worked when checked. Press v to show them or r to check again.' if failed and not self.show_failed else
+                         'No streams yet. Try again near game time, or change the filter.')
             self.footer(actions)
         self.put(h-1, 1, self.message, curses.A_DIM)
         self.scr.refresh()
@@ -1471,13 +1600,29 @@ class App:
         self.home_status(); return True
 
     def home_status(self):
-        """The footer already names what Enter opens on the menu; the status line only says how to get there."""
-        self.message = '' if self.home_index < len(HOME_ITEMS) else self.ARRIVAL['home']
+        """On the menu the status line says what the highlighted tab holds; on the games, how to reach the menu."""
+        self.message = MENU_NOTES[HOME_ITEMS[self.home_index][0]] if self.home_index < len(HOME_ITEMS) else self.ARRIVAL['home']
 
     def home_actions(self):
-        if self.home_index < len(HOME_ITEMS):
-            return f'Enter open {HOME_ITEMS[self.home_index][1]}   ←→ choose   ↓ games'
-        return 'Enter watch   ↑ menu   s one sport   r refresh'
+        if self.home_index == 0: return 'Enter or ↓ the games   ←→ choose'
+        if self.home_index < len(HOME_ITEMS): return f'Enter open {HOME_ITEMS[self.home_index][1]}   ←→ choose   ↓ games'
+        return 'Enter see streams   ↑ menu   r reload'
+
+    def more_below(self, y, hidden):
+        if hidden > 0: self.put(y, 4, f'↓ {hidden} more below', curses.A_DIM)
+
+    def game_row(self, y, line, selected, title_width, w, mark=True, dim=False):
+        """One game as Home and the schedules draw it: league, live light, teams, start time, channels."""
+        title = line.title if len(line.title) <= title_width else line.title[:title_width-1] + '…'
+        lead = f'{">" if selected else " "} ' + (f'{line.mark:<4} ' if mark else '')
+        text = f'{lead}  {title:<{title_width}}  {"LIVE" if line.live else line.when:>8}  '
+        channels = fit_channels(line.channels, w-len(text)-3)
+        if selected:
+            self.put(y, 2, f'{text + channels:<{w-4}}', curses.A_REVERSE)
+        else:
+            self.put(y, 2, text, curses.A_DIM if dim else curses.A_BOLD if line.live else 0)
+            self.put(y, 2+len(text), channels, curses.A_DIM)
+        if line.live: self.put(y, 2+len(lead), '●', curses.A_REVERSE | curses.A_BOLD if selected else self.on_air)
 
     def refresh_tonight(self):
         """Load Home's games in the background; poll_tonight applies the newest answer."""
@@ -1702,7 +1847,9 @@ class App:
         if selected in keys:
             self.search_position = keys.index(selected)
         elif not self.search_touched:
-            self.search_position = 0
+            # A team search starts on its live game, which is what most people came for.
+            led = bool(self.search_results) and self.search_results[0].kind == 'team'
+            self.search_position = next((i for i, hit in enumerate(self.search_results) if hit.kind == 'live'), 0) if led else 0
         else:
             self.search_position = min(self.search_position, max(0, len(keys)-1))
         if self.mode != 'search': return
@@ -1716,7 +1863,7 @@ class App:
             self.message = 'Start typing a player, team, matchup, or league.'
         elif pending or player_pending:
             self.message = (f'{player_count} players · checking...' if player_count and not count else
-                            f'{count} games and replays found | searching...')
+                            f'{count} games and replays found · still searching…')
         elif count:
             self.message = f'{count} games and replays found. Choose one or keep typing.'
             if unavailable: self.message += f' {unavailable} sources unavailable; Ctrl-R retries.'
@@ -1900,9 +2047,9 @@ class App:
         self.auto_checked_at.clear()
         self.search_preview_adopt_generation = generation
         for feeds in self.feed_sections.values(): self.start_auto_checks(generation, feeds)
-        self.message = f'{len(self.feeds)} choices found'
+        self.message = f'{len(self.feeds)} streams found.'
         if self.feed_pending: self.message += f' | checking {self.feed_pending} sources...'
-        elif self.errors: self.message += ' | ' + ', '.join(self.errors)
+        elif self.errors: self.message += ' Some sites did not answer.'
 
     def refresh_replays(self):
         self.replay_generation += 1
@@ -1946,7 +2093,7 @@ class App:
         if changed and self.mode == 'replays':
             self.message = f'{len(self.replays)} replays found'
             if self.replay_pending: self.message += f' | checking {self.replay_pending} catalogs...'
-            elif self.replay_errors: self.message += ' | ' + ', '.join(self.replay_errors)
+            elif self.replay_errors: self.message += ' Some sites did not answer.'
         return changed
 
     def visible_channels(self):
@@ -1962,8 +2109,8 @@ class App:
         threading.Thread(target=worker, daemon=True).start()
 
     def channel_summary(self):
-        if not self.channel_filter: return f'{len(self.channels)} channels.'
-        return f'{len(self.visible_channels())} of {len(self.channels)} channels match "{self.channel_filter}". f changes the filter.'
+        if not self.channel_filter: return 'Pick a channel to see its streams.'
+        return f'{len(self.visible_channels())} of {len(self.channels)} channels match "{self.channel_filter}".'
 
     def poll_channels(self):
         try: channels, errors = self.channel_queue.get_nowait()
@@ -1976,7 +2123,8 @@ class App:
             self.redzone_pending = False
             if self.mode == 'games' and self.games and self.games[self.gi].id == REDZONE: self.open_redzone()
         elif self.mode == 'channels':
-            self.message = self.channel_summary() + (' | ' + ', '.join(errors) if errors else '')
+            # A directory that is down only means fewer sources; name it without the network error.
+            self.message = ('Some channels may be missing: one list did not load. r tries again.' if errors else self.channel_summary())
         elif self.mode == 'search' and self.search_plan is not None:
             self.rebuild_global_results()
         return True
@@ -2020,7 +2168,7 @@ class App:
         self.manual_status.clear()
         self.feed_sections = {}; self.feed_order = [name for name, _ in tasks]
         self.feed_pending = len(tasks); self.feed_selection_touched = False
-        self.message = 'Checking sources...' if tasks else 'No sources available.'
+        self.message = 'Looking for streams…' if tasks else 'No streams yet.'
         while True:
             try: self.feed_jobs.get_nowait()
             except queue.Empty: break
@@ -2065,9 +2213,9 @@ class App:
                 self.fi = 0 if selected is None else min(self.fi, max(0, len(visible)-1))
             changed = True
         if changed and self.mode == 'feeds':
-            self.message = f'{len(self.feeds)} choices found'
+            self.message = f'{len(self.feeds)} streams found.'
             if self.feed_pending: self.message += f' | checking {self.feed_pending} sources...'
-            elif self.errors: self.message += ' | ' + ', '.join(self.errors)
+            elif self.errors: self.message += ' Some sites did not answer.'
         return changed
 
     def start_auto_checks(self, generation, feeds):
@@ -2139,6 +2287,10 @@ class App:
             selected_index = next((index for index, item in enumerate(visible) if item is selected), None)
             self.fi = (selected_index if selected_index is not None else
                        min(old_index, max(0, len(visible)-1)) if chosen else 0)
+            statuses = [self.auto_checks.get(id(feed)) for feed in self.feeds if id(feed) not in self.hidden_feeds]
+            if self.mode == 'feeds' and 'checking' not in statuses and not self.feed_pending:
+                working = sum(1 for status in statuses if status == 'OK')
+                self.message = f'Checked: {working} of {len(statuses)} streams work.'
         return changed
 
     def prompt(self, label, initial=''):
@@ -2676,6 +2828,7 @@ class App:
 
     def arrive(self, mode):
         self.mode = mode; self.message = self.ARRIVAL.get(mode, '')
+        if mode == 'home': self.home_status()
 
     def handle_key(self, key, typed):
         """Apply one key press to the current screen; return False to quit."""
@@ -2697,6 +2850,7 @@ class App:
             self.select(0 if self.home_index >= len(HOME_ITEMS) else self.first_game_row()); self.home_status()
         elif key in (curses.KEY_LEFT, ord('h'), curses.KEY_RIGHT, ord('l')) and self.mode == 'home' and self.home_index < len(HOME_ITEMS):
             self.home_index = min(len(HOME_ITEMS)-1, max(0, self.home_index + (1 if key in (curses.KEY_RIGHT, ord('l')) else -1)))
+            self.home_status()
         elif key in (curses.KEY_UP, ord('k'), curses.KEY_DOWN, ord('j')) and self.mode == 'home' and self.home_menu_move(key in (curses.KEY_UP, ord('k'))):
             pass
         elif key == ord('s') and (self.mode in ('games', 'replays') or self.mode == 'feeds' and self.feed_context != 'tv'): self.pick_sport()
@@ -2803,7 +2957,10 @@ class App:
                 self.games = [item]; self.all_games = [item]; self.gi = 0; self.league = item.league
                 self.open_feeds('live', 'home'); return
             action = item[0]
-            if action == 'search': self.open_search()
+            if action == 'tonight':
+                self.select(self.first_game_row()); self.home_status()
+                if not self.tonight: self.message = 'No games tonight. Choose By sport for other days.'
+            elif action == 'search': self.open_search()
             elif action == 'settings': self.open_settings()
             else: self.open_section(action)
         elif self.mode == 'leagues':
@@ -2904,15 +3061,15 @@ class App:
     def settings_rows(self):
         """(label, current value, change) for the settings screen."""
         return [
-            ('Player', self.player.upper(), self.cycle_player),
-            ('Cache', f'{self.cache} seconds', self.cycle_cache),
-            ('Video in the terminal', 'on' if self.terminal_video else 'off', self.toggle_terminal_video),
-            ('Backup source for live streams', 'on' if self.dual_stream else 'off', self.toggle_backup),
-            ('During detected ads', breaks.LABELS[self.ad_breaks] + ('' if self.ai_ad_mute else ' (choose mute ads)'), self.cycle_ad_breaks),
+            ('Video player', self.player, self.cycle_player),
+            ('Buffer before playing', f'{self.cache} seconds', self.cycle_cache),
+            ('Show video in this window', 'on' if self.terminal_video else 'off', self.toggle_terminal_video),
+            ('Backup stream for live games', 'on' if self.dual_stream else 'off', self.toggle_backup),
             ('Ad mute', dict(AD_MUTE_CHOICES)[self.ad_mute_choice()], self.cycle_ad_mute),
+            ('When an ad is detected', breaks.LABELS[self.ad_breaks] + ('' if self.ai_ad_mute else ' (needs Ad mute)'), self.cycle_ad_breaks),
             ('Ad detector', self.ad_detector_value(), self.install_ad_detector),
-            ('Sports add-on', 'set' if self.config.get('addon') else 'none', self.configure_addon),
-            ('PPV resolver folder', self.config.get('resolver_dir') or 'default', self.configure_resolver),
+            ('Extra sources add-on', 'set' if self.config.get('addon') else 'none', self.configure_addon),
+            ('Pay-per-view helper folder', self.config.get('resolver_dir') or 'default', self.configure_resolver),
         ]
 
     def cycle_player(self):
@@ -2944,7 +3101,7 @@ class App:
     def cycle_ad_breaks(self):
         self.ad_breaks = breaks.MODES[(breaks.MODES.index(self.ad_breaks)+1) % len(breaks.MODES)]
         self.config['ad_breaks'] = self.ad_breaks; save_config(self.config)
-        self.message = 'During detected ads: ' + breaks.LABELS[self.ad_breaks] + '.'
+        self.message = 'When an ad is detected: ' + breaks.LABELS[self.ad_breaks] + '.'
         if not self.ai_ad_mute: self.message += ' Choose mute ads under Ad mute to use it.'
 
     @property

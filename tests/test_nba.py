@@ -593,7 +593,7 @@ class DiscoveryTests(unittest.TestCase):
     def test_s_changes_sport_and_settings_set_the_resolver(self):
         # Home -> s (sport list) -> NBA -> a game's sources -> s (sport picker) -> Esc back to sources
         # -> , settings -> Down to the PPV resolver row -> Enter. Ad mute and Ad detector sit above it.
-        downs = [name for name, _, _ in nba.App(None, {}).settings_rows()].index('PPV resolver folder')
+        downs = [name for name, _, _ in nba.App(None, {}).settings_rows()].index('Pay-per-view helper folder')
         class Screen:
             def __init__(self): self.keys = iter([ord('s'), 10, 10, ord('s'), 27, ord(','), *[ord('j')] * downs, 10, ord('q')])
             def keypad(self, value): pass
@@ -683,7 +683,7 @@ class DiscoveryTests(unittest.TestCase):
         games = [row for row in shown['rows'] if row['pick']]
         self.assertEqual(len(games), 1)
         self.assertEqual(games[0]['text'], 'San Antonio Spurs vs Sacramento Kings')
-        self.assertEqual(games[0]['detail'], '2 sites')
+        self.assertEqual(games[0]['detail'], '2 sources')
         self.assertEqual(shown['rows'][0]['text'], 'FRIDAY, NOV 6')
         self.assertFalse(shown['rows'][0]['pick'])
         self.assertEqual(shown['selected'], 1)
@@ -703,7 +703,6 @@ class DiscoveryTests(unittest.TestCase):
         drawn = '\n'.join(app.scr.text[y] for y in sorted(app.scr.text))
         self.assertEqual(drawn.count('San Antonio Spurs vs Sacramento Kings'), 1)
         self.assertIn('FRIDAY, NOV 6', drawn)
-        self.assertIn('2 sites', drawn)
         self.assertNotIn('Full Game Replay', drawn)
         self.assertNotIn('121', drawn)
         self.assertNotIn('[Basketball', drawn)
@@ -774,9 +773,9 @@ class DiscoveryTests(unittest.TestCase):
                 time.sleep(0.01)
         self.assertEqual([feed.source for feed in app.feeds], ['Basketball Replays', 'Basketball Video'])
         shown = remote.view(app)
-        self.assertIn('2 sites', shown['info'])
-        self.assertEqual([row['cells'][0].split(' / ')[0] for row in shown['rows']],
-                         ['Basketball Replays', 'Basketball Video'])
+        self.assertIn('2 sources', shown['info'])
+        self.assertEqual([row['cells'][0] for row in shown['rows']], ['Stream 1', 'Stream 2'])
+        self.assertEqual([row['detail'].split(' / ')[0] for row in shown['rows']], ['Basketball Replays', 'Basketball Video'])
         app.close()
 
     def test_a_down_site_does_not_hide_the_other_sites_servers(self):
