@@ -1,0 +1,63 @@
+---
+title: "Starting a live stream with a backup"
+---
+stateDiagram-v2
+  state "Legend" as legend {
+    lg0: ok
+    lg1: degraded
+    lg2: down
+    lg3: wait
+  }
+  class lg0 teal
+  class lg1 orange
+  class lg2 pink
+  class lg3 blue
+  s0: Primary loading, backup loading
+  s1: Primary failed, backup loading
+  s2: Primary ready, backup loading
+  s3: Primary loading, backup failed
+  s4: Primary loading, backup ready
+  s5: Primary failed: nothing plays
+  s6: Primary failed, backup failed
+  s7: Primary failed, backup ready
+  s8: Primary ready, backup failed
+  s9: Primary ready, backup ready
+  s10: Playing the primary alone
+  s11: Playing with the backup
+  s12: Primary ready, backup loading, deadline reached
+  [*] --> s0
+  s0 --> s1: the primary's playlist fails
+  s0 --> s2: the primary's playlist loads
+  s0 --> s3: the backup's playlist fails
+  s0 --> s4: the backup's playlist loads
+  s1 --> s5: playback starts
+  s1 --> s6: the backup's playlist fails
+  s1 --> s7: the backup's playlist loads
+  s2 --> s8: the backup's playlist fails
+  s2 --> s9: the backup's playlist loads
+  s3 --> s6: the primary's playlist fails
+  s3 --> s8: the primary's playlist loads
+  s4 --> s7: the primary's playlist fails
+  s4 --> s9: the primary's playlist loads
+  s6 --> s5: playback starts
+  s7 --> s5: playback starts
+  s8 --> s10: playback starts
+  s9 --> s11: playback starts
+  s2 --> s12: Tick
+  s0 --> s12: the primary's playlist loads
+  s12 --> s10: playback starts
+  s12 --> s8: the backup's playlist fails
+  s12 --> s9: the backup's playlist loads
+  class s0 blue
+  class s1 blue
+  class s2 blue
+  class s3 blue
+  class s4 blue
+  class s5 pink
+  class s6 blue
+  class s7 blue
+  class s8 blue
+  class s9 blue
+  class s10 orange
+  class s11 teal
+  class s12 blue

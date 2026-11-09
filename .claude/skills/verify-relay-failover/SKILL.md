@@ -36,7 +36,7 @@ python3 -m unittest tests.test_backup_choice_model -v   # the real chooser again
 
 **Start promise (`BackupChoice.tla`):** the primary must load; a backup that has not answered by `Merged.PREPARE_WAIT` never delays a ready primary; the backup kept had loaded in time, and is the first offered that lines up with the primary, else the first that loaded. A break shows as a slow start, or as replayed or skipped seconds at the first failover because a backup from another encoder was kept over one that lined up.
 
-Read every result, pass or fail, with the pstack `/statechart` skill on `verification/relay/RelayFailover.tla` with that config and `verification/relay/view.mjs`: it gives each broken rule's shortest path in plain words, and a chart when it passes.
+Read every result, pass or fail, with the pstack `/statechart` skill: `RelayFailover.tla` with that config and `verification/relay/view.mjs`, or `BackupChoice.tla` with `choice-chart.cfg` and `choice-view.mjs`: it gives each broken rule's shortest path in plain words, and a chart when it passes.
 
 ## Drill the real relay
 

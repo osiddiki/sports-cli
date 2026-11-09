@@ -19,15 +19,15 @@ Live TV channels (CNN, CNBC, MS NOW, Fox News and about 2,000 more) from iptv-or
 
 Preconditions: baseline; network without a proxy for the source checks.
 
-- **Open from Home.** `$D 'expect:Home' key:3 'expect:CNN  \(\d+ sources?\)' shot:channels`. The first rows are CNN, CNBC, MS NOW, Fox News, Fox Business in bold.
-- **Back.** Continue with `key:Esc 'expect:Home'`.
-- **Search.** `$D 'expect:Home' key:/ type:cnbc 'expect:TV CHANNELS' shot:results key:Enter 'expect:choices found' shot:sources`.
-- **Start there.** `$D --app-args="--tv" 'expect:CNN  \(\d+ sources?\)' shot:start`.
-- **Filter.** `$D --app-args="--tv" 'expect:CNN  \(' key:f 'expect:Filter channels' type:weather key:Enter 'expect:filter: weather' shot:filtered`. Only weather channels remain.
-- **Sources.** `$D --app-args="--tv" 'expect:CNN  \(' key:Down key:Enter 'expect:CNBC' 'expect:choices found' wait:6 shot:sources`. CNBC lists an iptv-org and a DaddyLive source; the CHECK column fills in (`OK` or `HTTP 404`).
+- **Open from Home.** `$D 'expect:LIVE|LATER|No games' key:4 'expect:ESPN +\d+ streams?' shot:channels`. Sports channels lead: ESPN, ESPN2, FS1, TNT, NFL RedZone, NFL Network, then CNN, CNBC, MS NOW, Fox News, Fox Business in bold.
+- **Back.** Continue with `key:Esc 'expect:LIVE|LATER|No games'`.
+- **Search.** `$D 'expect:LIVE|LATER|No games' key:/ type:cnbc 'expect:TV CHANNELS' shot:results key:Enter 'expect:^ Streams' shot:sources`.
+- **Start there.** `$D --app-args="--tv" 'expect:ESPN +\d+ streams?' shot:start`.
+- **Filter.** `$D --app-args="--tv" 'expect:ESPN +\d+' key:f 'expect:Filter channels' type:weather key:Enter 'expect:filter: weather' shot:filtered`. Only weather channels remain.
+- **Sources.** `$D --app-args="--tv" 'expect:ESPN +\d+' key:Down key:Enter 'expect:ESPN2' 'expect:^ Streams' wait:6 shot:sources`. CNBC lists an iptv-org and a DaddyLive source; the STATUS column fills in (`OK` or `HTTP 404`).
 
 ## Gotchas
 
 - The channel list loads in the background (spinner beside `Live TV`); expect a CNN row before pressing Enter.
-- iptv-org's CNBC stream has returned HTTP 404; its DaddyLive source played. Report what the CHECK column shows.
+- iptv-org's CNBC stream has returned HTTP 404; its DaddyLive source played. Report what the STATUS column shows.
 - Inside a sandbox proxy, DaddyLive's player host is refused; the list still loads.

@@ -33,19 +33,21 @@ Read-only. It reports the commit, Python, whether `./sports-cli` starts, mpv and
 
 Real handles from this app, all from the footer and headings it renders:
 
-Every screen takes `1` live sports, `2` replays, `3` live TV, `/` search, `,` settings, `?` help and `q` quit; Esc goes back one level and repeated reaches Home.
+Every screen except Search takes `/` search, `,` settings, `?` help and `q` quit; `1` to `9` open that row of the current list; Esc goes back one level and, repeated, reaches Home.
 
 | Screen | Heading | Ready when | Keys |
 |---|---|---|---|
-| Home | `Home` | `Live sports` | Enter on a row, or its key |
-| Sport list | `Live sports: choose a sport` or `Replays: choose a sport` | that text | Enter, Esc |
-| Schedule | `Games` | `NBA  \|` (league name then a bar) | Enter sources, `s` sport, `[` `]` date, `f` filter, `r` |
-| Sources | `Sources` | `choices found` | Enter play, `x` test, `i` inspect, `u` paste URL, `a` side (live), `o` source, `f` filter, `g` rank, Esc |
-| Replays | `Replays` | `replays found` | Enter sources, `s` sport, `f` search titles, Esc |
-| Live TV | `Live TV` | `CNN  \(\d+ sources?\)` | Enter sources, `f` filter (prompt), Esc |
-| Search | `Search` | `Search:` | type text; `TV CHANNELS`, `LIVE`, `REPLAYS` groups; Enter, Esc |
-| Settings | `Settings` | `Backup source for live streams` | Up/Down, Enter changes the row, Esc |
-| Help | `Help` | `Controls and setup` in the status line | Esc |
+| Home | `Tonight` | `LIVE`, `LATER` or `No games`; the menu row `Tonight   By sport   Replays   Live TV   Search   Settings` | Enter a game; Up from the first game reaches the menu, Left/Right move along it and the status line names the tab; `1` to `6` open the menu items |
+| Sport list | `By sport: choose a sport` or `Replays: choose a sport` | that text | Enter, Esc |
+| Schedule | `Games` | `NBA  ·` (league name then a dot) | Enter see streams, `[` `]` other days, `s` sport, `f` filter, `r` reload |
+| Streams | `Streams` | `Stream 1` once loaded; the status line ends as `N working, ...` after checks | Enter play, `v` show failed, `f` filter, `r` check again, `a` home/away (live); Help lists `x` `i` `u` `o` `g` |
+| Replays | `Replays` | `replays found.` | Enter see streams, `s` sport, `f` filter, Esc |
+| Live TV | `Live TV` | `ESPN +\d+ streams?` (sports channels lead) | Enter see streams, `f` find (prompt), `r` reload, Esc |
+| Search | `Search` | `Find:` | type text; `TV CHANNELS`, `LIVE`, `REPLAYS` groups; Enter, Esc |
+| Settings | `Settings` | `Backup stream for live games` | Up/Down, Enter changes the row, Esc |
+| Help | `Help` | `Controls and setup` in the status line | Up/Down scroll, Esc |
+
+`Left` and `Right` are sent as `h` and `l`, which the app treats the same way.
 
 Move with `key:Down` / `key:Up` (sent as `j` / `k`). Prompts (`f` filters, `u`, and the add-on and resolver rows in Settings) leave curses for a plain `input()` line: send `type:TEXT` then `key:Enter`.
 
@@ -57,7 +59,7 @@ Screens go to `~/.cache/sports-cli-verify/runs/<time>/NN-label.txt` (or `--out D
 
 - the real user path: keys on screens, not calling `App` methods or setting attributes;
 - a shot before and after the action, plus the status line (`expect` the message the action prints, such as `Backup source off` or `Returned from mpv.`);
-- side effects observed, not assumed: for playback, `Returned from mpv.` after the play key; for Settings, the context line on the Sources screen (`backup: off`, `cache: 30s`).
+- side effects observed, not assumed: for playback, `Returned from mpv.` after the play key; for Settings, the context line on the Streams screen (`backup off`, `buffer 30s`).
 
 Live data changes all day: games appear near start time, sources come and go. Record what the screen showed rather than claiming a listing works everywhere.
 

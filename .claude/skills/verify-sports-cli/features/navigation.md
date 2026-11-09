@@ -20,11 +20,11 @@ Home, the three sections (live sports, replays, live TV), search, settings and h
 
 Preconditions: baseline.
 
-- **Home to a schedule and back.** `$D 'expect:Home' shot:home key:1 'expect:Live sports: choose a sport' key:Enter 'expect:NBA  \|' shot:schedule key:Esc 'expect:choose a sport' key:Esc 'expect:Home' shot:back-home`.
-- **Change sport.** `$D --app-args="--league nba" 'expect:NBA  \|' key:s 'expect:choose a sport' key:Down key:Enter 'expect:WNBA  \|' shot:wnba`.
-- **Help round trip.** `$D --app-args="--league nba" 'expect:NBA  \|' 'key:?' 'expect:Controls and setup' shot:help key:Esc 'expect:NBA  \|' shot:back`.
-- **Search round trip.** `$D 'expect:Home' key:/ 'expect:Search:' type:lakers shot:search key:Esc 'expect:Home' shot:back`.
-- **Date.** `$D --app-args="--league nba" 'expect:NBA  \|' shot:today 'key:]' 'expect:NBA  \|' shot:tomorrow`.
+- **Home to a schedule and back.** `$D 'expect:LIVE|LATER|No games' shot:home key:Up key:Right key:Enter 'expect:By sport: choose a sport' key:Enter 'expect:NBA  ·' shot:schedule key:Esc 'expect:choose a sport' key:Esc 'expect:LIVE|LATER|No games' shot:back-home`.
+- **Change sport.** `$D --app-args="--league nba" 'expect:NBA  ·' key:s 'expect:choose a sport' key:Down key:Enter 'expect:WNBA  ·' shot:wnba`.
+- **Help round trip.** `$D --app-args="--league nba" 'expect:NBA  ·' 'key:?' 'expect:Controls and setup' shot:help key:Esc 'expect:NBA  ·' shot:back`.
+- **Search round trip.** `$D 'expect:LIVE|LATER|No games' key:/ 'expect:Find:' type:lakers shot:search key:Esc 'expect:LIVE|LATER|No games' shot:back`.
+- **Date.** `$D --app-args="--league nba" 'expect:NBA  ·' shot:today 'key:]' 'expect:NBA  ·' shot:tomorrow`.
 
 ## Gotchas
 

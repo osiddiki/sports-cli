@@ -1,6 +1,6 @@
 # Sources and playback settings
 
-The Sources screen for a game or channel: its sources with automatic checks, and the toggles that change how playback works.
+The Streams screen for a game or channel: its sources with automatic checks, and the toggles that change how playback works.
 
 ## Sub-features
 
@@ -19,9 +19,9 @@ The Sources screen for a game or channel: its sources with automatic checks, and
 
 Preconditions: baseline; a live or upcoming game on today's NBA schedule with sources (sources usually appear near start time). Live TV channels always have sources, so use CNN when no game has any.
 
-- **Open sources.** `$D --app-args="--tv" 'expect:CNN  \(' key:Enter 'expect:choices found' shot:sources`.
-- **Settings.** `$D 'expect:Home' key:, 'expect:Backup source for live streams' shot:settings key:Down key:Down key:Down key:Enter 'expect:Backup source off' key:Down key:Enter 'expect:During detected ads: break screen' key:Up key:Up key:Up key:Enter 'expect:Cache: 30 seconds' shot:changed`.
-- **Settings reach sources.** Continue with `key:3 'expect:CNN  \(' key:Enter 'expect:backup: off' 'expect:cache: 30s' shot:sources`.
+- **Open sources.** `$D --app-args="--tv" 'expect:ESPN +\d+' key:Enter 'expect:^ Streams' shot:sources`.
+- **Settings.** `$D 'expect:LIVE|LATER|No games' key:, 'expect:Backup stream for live games' shot:settings key:Down key:Down key:Down key:Enter 'expect:Backup source off' key:Down key:Down key:Enter 'expect:When an ad is detected: break screen' key:Up key:Up key:Up key:Up key:Enter 'expect:Buffer before playing: 30 seconds' shot:changed`.
+- **Settings reach sources.** Continue with `key:Esc 'expect:LIVE|LATER|No games' key:4 'expect:ESPN +\d+' key:Enter 'expect:backup off' 'expect:buffer 30s' shot:sources`.
 - **Test.** On a sources screen, `key:x 'expect:OK|HTTP|Testing' wait:5 shot:tested`.
 
 ## Gotchas

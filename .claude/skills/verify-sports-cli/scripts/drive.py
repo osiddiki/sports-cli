@@ -45,6 +45,7 @@ except ImportError:
     os.execv(str(python), [str(python), __file__, *sys.argv[1:]])
 
 KEYS = {'Enter': '\r', 'Esc': '\x1b', 'Tab': '\t', 'Space': ' ', 'Backspace': '\x7f', 'Up': 'k', 'Down': 'j',
+        'Left': 'h', 'Right': 'l',
         'Ctrl-F': '\x06', 'Ctrl-X': '\x18'}
 
 
@@ -106,8 +107,8 @@ def main():
                 print('saved', save(value))
             elif kind == 'expect':
                 deadline = time.time() + 20
-                while time.time() < deadline and not re.search(value, text()): pump(.25)
-                if re.search(value, text()):
+                while time.time() < deadline and not re.search(value, text(), re.M): pump(.25)
+                if re.search(value, text(), re.M):
                     print('matched', repr(value))
                 else:
                     ok = False; print('NOT FOUND', repr(value), '->', save('failed-expect')); break

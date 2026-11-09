@@ -89,8 +89,11 @@ Decide ==
                ELSE Best(Ready)
     /\ UNCHANGED <<primary, load, kind, now, held>>
 
+\* The stream has started or been refused; nothing more happens in prepare().
+Done == outcome # "undecided" /\ UNCHANGED vars
+
 Next ==
-    \/ PrimaryLoads \/ PrimaryFails \/ Tick \/ Decide
+    \/ PrimaryLoads \/ PrimaryFails \/ Tick \/ Decide \/ Done
     \/ \E b \in B : BackupLoads(b) \/ BackupFails(b)
 
 Spec == Init /\ [][Next]_vars

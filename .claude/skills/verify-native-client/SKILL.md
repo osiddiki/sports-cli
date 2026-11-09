@@ -63,6 +63,6 @@ Change the model in the same commit as the code, keep each rule, and add a confi
 
 ## Coverage record
 
-Files: `native/src/main.rs`, `native/src/server.rs`, `sportscli/remote.py` (`Remote.view`, `Remote.key`, `Headless.play`). Last confirmed to describe the code at the commit that added this skill (`git log -1 --format=%h -- .claude/skills/verify-native-client`). Move this record forward only after rechecking that table against the code at the new commit.
+Files: `native/src/main.rs`, `native/src/server.rs`, `sportscli/remote.py` (`Remote.view`, `Remote.key`, `Headless.play`). Last confirmed to describe the code at **fec3a44**: since the model was written, a click on a row sends its moves and Enter as ordinary keys on the same worker (`State::press_row`, `keys_for_row`, held by `click_keys_left` until answered), which the model's key action already covers; a menu item click sends its number; replay seeking talks to AVPlayer only (`native/src/timeline.rs`), so it stays outside the model. The no-double-Enter promise for clicks is a unit test, `a_second_press_during_a_click_does_not_enqueue_another_enter`, not a model rule. Move this record forward only after rechecking that table against the code at the new commit.
 
 Not covered: what Python does inside a key (the screen statechart has its own test, `tests/test_screens.py`); AVPlayer's behaviour; the relay (`verify-relay-failover`).

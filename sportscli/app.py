@@ -3106,7 +3106,7 @@ class App:
 
     def cycle_cache(self):
         self.cache = {5:15, 15:30, 30:5}[self.cache]; self.config['cache'] = self.cache; save_config(self.config)
-        self.message = f'Cache: {self.cache} seconds.'
+        self.message = f'Buffer before playing: {self.cache} seconds.'
 
     def toggle_terminal_video(self):
         if self.player != 'mpv': self.message = 'Terminal video needs mpv.'; return
