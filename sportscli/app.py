@@ -936,7 +936,7 @@ class App:
         self.schedule_selected_id = None
         self.filter = 'all'
         self.provider_filter = 'all'
-        self.message = 'Choose what to watch, or press / to search.'
+        self.message = 'Pick a game to watch, or press ↑ for the menu.'
         self.errors = []
         self.feed_queue = queue.Queue()
         self.feed_jobs = queue.Queue(maxsize=16)
@@ -1200,7 +1200,8 @@ class App:
             x = 2
             for index, _, label in sections:
                 selected = index == self.home_index
-                self.put(3, x, f' {label} ', curses.A_REVERSE if selected else curses.A_BOLD); x += len(label) + 4
+                self.put(3, x, f' {label} ', curses.A_REVERSE if selected else 0); x += len(label) + 4
+            self.put(4, 2, '─' * max(0, min(w-4, x-2)), curses.A_DIM)
             top = 5
             capacity = max(1, h-4-len(self.action_lines(actions))-top)
             # The sections are not among these lines. Keep the scroll the games were at, or the games jump to the top.
@@ -1464,9 +1465,14 @@ class App:
         """Home's menu is one row: Up from the first game reaches Replays, Down from the menu the first game."""
         on_menu, first = self.home_index < len(HOME_ITEMS), self.first_game_row()
         if on_menu and (up or first == 0): return True
-        if on_menu: self.select(first); return True
-        if up and self.home_index == first: self.select(0); return True
-        return False
+        if on_menu: self.select(first)
+        elif up and self.home_index == first: self.select(0)
+        else: return False
+        self.home_status(); return True
+
+    def home_status(self):
+        """The footer already names what Enter opens on the menu; the status line only says how to get there."""
+        self.message = '' if self.home_index < len(HOME_ITEMS) else self.ARRIVAL['home']
 
     def home_actions(self):
         if self.home_index < len(HOME_ITEMS):
@@ -2663,7 +2669,7 @@ class App:
     BACK_KEYS = (27, curses.KEY_BACKSPACE, 127, 8, curses.KEY_LEFT, ord('h'))
     OPEN_KEYS = (10, 13, curses.KEY_ENTER, curses.KEY_RIGHT, ord('l'))
     # What each screen asks of the user when they arrive back on it.
-    ARRIVAL = {'home': 'Choose what to watch, or press / to search.', 'leagues': 'Choose a sport.',
+    ARRIVAL = {'home': 'Pick a game to watch, or press ↑ for the menu.', 'leagues': 'Choose a sport.',
                'games': 'Select a game.', 'replays': 'Select a replay.', 'channels': 'Select a channel.',
                'replay_sources': 'Choose a replay site.', 'feeds': 'Choose a source.',
                'settings': 'Enter changes the selected setting.', 'search': 'Type to search.'}
@@ -2687,7 +2693,8 @@ class App:
         elif key == ord('/'): self.open_search()
         elif key == ord(','): self.open_settings()
         elif key == ord('s') and self.mode == 'home': self.open_section('sports')
-        elif key == 9 and self.mode == 'home': self.select(0 if self.home_index >= len(HOME_ITEMS) else self.first_game_row())
+        elif key == 9 and self.mode == 'home':
+            self.select(0 if self.home_index >= len(HOME_ITEMS) else self.first_game_row()); self.home_status()
         elif key in (curses.KEY_LEFT, ord('h'), curses.KEY_RIGHT, ord('l')) and self.mode == 'home' and self.home_index < len(HOME_ITEMS):
             self.home_index = min(len(HOME_ITEMS)-1, max(0, self.home_index + (1 if key in (curses.KEY_RIGHT, ord('l')) else -1)))
         elif key in (curses.KEY_UP, ord('k'), curses.KEY_DOWN, ord('j')) and self.mode == 'home' and self.home_menu_move(key in (curses.KEY_UP, ord('k'))):
