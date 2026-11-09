@@ -15,6 +15,14 @@ No typing needed:
 
 A window opens, lists what it will install, and waits for you to press Enter. It may ask for your computer's password; nothing appears while you type it, which is normal. When it finishes, Sports CLI opens. From then on, open **Sports CLI** from Applications, Launchpad or Spotlight on a Mac, or from the Start menu on Windows. Double-clicking the installer again updates it.
 
+### Stuck? Let an AI assistant walk you through it
+
+If the installer stops, it copies a message that describes the problem and your computer type. Open [chatgpt.com](https://chatgpt.com), [claude.ai](https://claude.ai) or [gemini.google.com](https://gemini.google.com) (each has a free tier), paste the message, and follow the steps it gives you. The same message is saved as `sports-cli-help.txt` in your home folder.
+
+If you are stuck before the installer even starts, paste this instead:
+
+> I want to install Sports CLI from https://github.com/osiddiki/sports-cli on my computer. I am not technical. Read its README, then tell me exactly what to click and type, one step at a time, and wait for me to say what happened before the next step. Never ask for my password.
+
 ### Remove it
 
 - **Mac:** download [Uninstall-Sports-CLI-Mac.zip](https://github.com/osiddiki/sports-cli/releases/download/installers/Uninstall-Sports-CLI-Mac.zip), open it, and double-click **Uninstall Sports CLI**. macOS asks you to allow it the same way as the installer.

@@ -18,8 +18,61 @@ for arg in "$@"; do
   esac
 done
 
-say() { printf '\n==> %s\n' "$*"; }
-fail() { printf '\nSetup stopped: %s\n' "$*" >&2; exit 1; }
+STEP='Getting ready'; REASON=''
+say() { STEP=$*; printf '\n==> %s\n' "$*"; }
+fail() { REASON=$*; printf '\nSetup stopped: %s\n' "$*" >&2; exit 1; }
+
+# Everything shown on screen is also kept in a log, so a failed install can be explained to a helper.
+LOG=$(mktemp "${TMPDIR:-/tmp}/sports-cli-install.XXXXXX")
+pipe=$LOG.pipe
+if mkfifo "$pipe" 2>/dev/null; then
+  exec 3>&1 4>&2
+  tee "$LOG" <"$pipe" >&3 &
+  tee_pid=$!
+  exec >"$pipe" 2>&1
+  rm -f "$pipe"
+fi
+
+# When the install fails: write a message an AI assistant can act on, copy it, and say where to paste it.
+get_help() {
+  help=$HOME/sports-cli-help.txt
+  {
+    echo 'I tried to install Sports CLI (https://github.com/osiddiki/sports-cli), a free terminal app for watching sports,'
+    echo 'and the installer failed. I am not technical. Please tell me exactly what to do, one step at a time, in plain'
+    echo 'words. If I need to type a command, give me the exact line to paste into the Terminal app, and tell me what I'
+    echo 'should see. Never ask me for my password; if a command asks for it, I type it myself (nothing shows as I type).'
+    echo 'When it is fixed, I rerun the installer with this line:'
+    echo '  curl -fsSL https://raw.githubusercontent.com/osiddiki/sports-cli/main/install.sh | sh'
+    echo
+    echo "Step that failed: $STEP"
+    [ -z "$REASON" ] || echo "What the installer said: $REASON"
+    echo "Computer: $(uname -srm)$(sw_vers -productVersion 2>/dev/null | sed 's/^/, macOS /')$(sed -n 's/^PRETTY_NAME=//p' /etc/os-release 2>/dev/null | tr -d '"' | sed 's/^/, /')"
+    echo "Already installed: $(for tool in brew python3 mpv node curl; do command -v "$tool" >/dev/null 2>&1 && printf '%s ' "$tool"; done)"
+    echo
+    echo 'The last lines the installer printed:'
+    tail -n 40 "$LOG" 2>/dev/null | sed "s|$HOME|~|g"
+  } > "$help" 2>/dev/null || return 0
+  copied=''
+  for copy in pbcopy wl-copy 'xclip -selection clipboard' 'xsel --clipboard --input'; do
+    if command -v "${copy%% *}" >/dev/null 2>&1 && $copy < "$help" 2>/dev/null; then copied=1; break; fi
+  done
+  printf '\n==> Stuck? An AI assistant can walk you through it, for free.\n'
+  if [ -n "$copied" ]; then echo 'A message describing this problem is now copied, ready to paste.'
+  else echo "A message describing this problem is saved in: $help"; echo 'Open that file and copy all of it.'; fi
+  echo 'Open chatgpt.com, claude.ai or gemini.google.com, paste it in, and follow the steps it gives you.'
+  [ -z "$copied" ] || echo "(The same message is saved in $help. It holds the error above and your computer type, nothing else.)"
+}
+
+finish() {
+  status=$?
+  rm -rf "${work:-}"
+  if [ "$status" != 0 ] && [ "$status" != 130 ]; then get_help; fi
+  if [ -n "${tee_pid:-}" ]; then exec >&3 2>&4; wait "$tee_pid" 2>/dev/null || true; fi
+  rm -f "$LOG"
+  exit "$status"
+}
+trap finish EXIT
+trap 'exit 130' INT
 run() { if [ "${SPORTS_CLI_DRY_RUN:-0}" = 1 ]; then echo "[dry run] $*"; else "$@"; fi; }
 has() { command -v "$1" >/dev/null 2>&1; }
 
@@ -131,7 +184,6 @@ fi
 say 'Downloading Sports CLI'
 parent=$(dirname "$APP"); mkdir -p "$parent"
 work=$(mktemp -d "$parent/.sports-cli-download.XXXXXX")
-trap 'rm -rf "$work"' EXIT
 case $ARCHIVE in
   http*) curl -fsSL "$ARCHIVE" -o "$work/app.tar.gz" ;;
   *) cp "$ARCHIVE" "$work/app.tar.gz" ;;

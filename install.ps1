@@ -13,8 +13,37 @@ $App = Join-Path $Root 'app'
 $Bin = Join-Path $Root 'bin'
 $WingetLinks = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links'
 
-function Say($text) { Write-Host "`n==> $text" }
-function Fail($text) { Write-Host "`nSetup stopped: $text" -ForegroundColor Red; exit 1 }
+$Step = 'Getting ready'
+function Say($text) { $script:Step = $text; Write-Host "`n==> $text" }
+# When the install fails: write a message an AI assistant can act on, copy it, and say where to paste it.
+function Get-Help($reason) {
+  try {
+    $help = Join-Path $env:USERPROFILE 'sports-cli-help.txt'
+    $have = @('py', 'python', 'mpv', 'node', 'winget' | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue }) -join ' '
+    @(
+      'I tried to install Sports CLI (https://github.com/osiddiki/sports-cli), a free terminal app for watching sports,',
+      'and the installer failed. I am not technical. Please tell me exactly what to do, one step at a time, in plain',
+      'words. If I need to type a command, give me the exact line to paste into PowerShell, and tell me what I should see.',
+      'Never ask me for my password. When it is fixed, I rerun the installer with this line in PowerShell:',
+      '  irm https://raw.githubusercontent.com/osiddiki/sports-cli/main/install.ps1 | iex',
+      '',
+      "Step that failed: $script:Step",
+      "What the installer said: $reason",
+      "Computer: $([Environment]::OSVersion.VersionString), PowerShell $($PSVersionTable.PSVersion)",
+      "Already installed: $have"
+    ) | Set-Content -Path $help -Encoding UTF8
+    $copied = $false
+    try { Get-Content $help -Raw | Set-Clipboard; $copied = $true } catch {}
+    Write-Host "`n==> Stuck? An AI assistant can walk you through it, for free."
+    if ($copied) { Write-Host 'A message describing this problem is now copied, ready to paste.' }
+    else { Write-Host "A message describing this problem is saved in: $help"; Write-Host 'Open that file and copy all of it.' }
+    Write-Host 'Open chatgpt.com, claude.ai or gemini.google.com, paste it in, and follow the steps it gives you.'
+    if ($copied) { Write-Host "(The same message is saved in $help. It holds the error above and your computer type, nothing else.)" }
+  } catch {}
+}
+function Fail($text) { Write-Host "`nSetup stopped: $text" -ForegroundColor Red; Get-Help $text; exit 1 }
+# Errors nobody planned for (a failed download, a blocked folder) get the same help.
+trap { Write-Host "`nSetup stopped: $_" -ForegroundColor Red; Get-Help "$_"; exit 1 }
 function Has($name) { [bool](Get-Command $name -ErrorAction SilentlyContinue) }
 function Refresh-Path {
   # winget installs do not reach this window's PATH until it is reopened.

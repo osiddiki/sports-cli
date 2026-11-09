@@ -1,5 +1,6 @@
 import os
 import pathlib
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -74,6 +75,38 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn('Node.js is installed but does not start', done.stderr)
         self.assertNotIn('Library not loaded', done.stderr)
+
+
+class InstallHelpTests(unittest.TestCase):
+    def install(self, home, archive):
+        tools = home / 'bin'; tools.mkdir()
+        clip = tools / 'pbcopy'; clip.write_text(f'#!/bin/sh\ncat > "{home}/clipboard.txt"\n'); clip.chmod(0o755)
+        env = {'HOME': str(home), 'PATH': f'{tools}:{os.environ["PATH"]}', 'SPORTS_CLI_ARCHIVE': str(archive),
+               'SPORTS_CLI_SKIP_RESOLVER': '1', 'TMPDIR': str(home)}
+        return subprocess.run(['sh', str(ROOT / 'install.sh'), '--yes'], env=env, capture_output=True, text=True, timeout=120)
+
+    @unittest.skipUnless(shutil.which('mpv') and shutil.which('tar') and shutil.which('curl'), 'needs mpv, tar and curl')
+    def test_a_failed_install_copies_a_message_an_assistant_can_act_on(self):
+        with tempfile.TemporaryDirectory() as home:
+            home = pathlib.Path(home)
+            bad = home / 'bad.tar.gz'; bad.write_text('not an archive')
+            done = self.install(home, bad)
+            self.assertNotEqual(done.returncode, 0)
+            self.assertIn('Stuck? An AI assistant can walk you through it', done.stdout)
+            self.assertIn('chatgpt.com, claude.ai or gemini.google.com', done.stdout)
+            message = (home / 'clipboard.txt').read_text()
+            self.assertEqual(message, (home / 'sports-cli-help.txt').read_text())
+            for part in ('I am not technical', 'Step that failed: Downloading Sports CLI', 'Never ask me for my password',
+                         'install.sh | sh', 'Computer: '):
+                self.assertIn(part, message)
+            self.assertNotIn(str(home), message, 'the home folder path stays out of the message')
+            self.assertEqual(list(home.glob('sports-cli-install.*')), [], 'the log is cleaned up')
+
+    def test_windows_installer_offers_the_same_help(self):
+        text = (ROOT / 'install.ps1').read_text()
+        self.assertIn('Set-Clipboard', text)
+        self.assertIn('chatgpt.com, claude.ai or gemini.google.com', text)
+        self.assertIn('trap {', text)
 
 if __name__ == '__main__':
     unittest.main()
