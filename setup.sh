@@ -7,7 +7,9 @@ if [ "${SPORTS_CLI_SKIP_RESOLVER:-0}" = 1 ]; then
   echo 'Skipping the PPV resolver; everything else works without it.'
 elif ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
   echo 'Node.js (20+) and npm not found; skipping the PPV resolver. Everything else works without it.' >&2
-elif [ "$(node -p "Number(process.versions.node.split('.')[0])")" -lt 20 ]; then
+elif ! node_major=$(node -p "Number(process.versions.node.split('.')[0])" 2>/dev/null); then
+  echo 'Node.js is installed but does not start; skipping the PPV resolver. Everything else works without it.' >&2
+elif [ "$node_major" -lt 20 ]; then
   echo 'Node.js is older than 20; skipping the PPV resolver. Install Node.js 20 or newer for PPV sources.' >&2
 else
   if [ ! -f resolver/src/server.js ]; then

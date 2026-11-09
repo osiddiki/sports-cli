@@ -62,5 +62,18 @@ class UninstallTests(unittest.TestCase):
         self.assertNotIn(b'\n', (ROOT / 'installers/Uninstall Sports CLI.bat').read_bytes().replace(b'\r\n', b''))
 
 
+
+class SetupTests(unittest.TestCase):
+    def test_a_node_that_cannot_start_skips_the_resolver_instead_of_crashing_the_install(self):
+        with tempfile.TemporaryDirectory() as bin_dir:
+            for name in ('node', 'npm'):
+                tool = pathlib.Path(bin_dir) / name
+                tool.write_text('#!/bin/sh\necho "dyld: Library not loaded" >&2\nkill -ABRT $$\n'); tool.chmod(0o755)
+            env = {'PATH': f'{bin_dir}:/usr/bin:/bin', 'PYTHON': '/nonexistent/python3', 'SPORTS_CLI_INSTALLER': '1'}
+            done = subprocess.run(['sh', str(ROOT / 'setup.sh')], env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn('Node.js is installed but does not start', done.stderr)
+        self.assertNotIn('Library not loaded', done.stderr)
+
 if __name__ == '__main__':
     unittest.main()
