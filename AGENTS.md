@@ -30,6 +30,8 @@ sh -n setup.sh install.sh uninstall.sh installers/*.command installers/publish.s
 
 To prove a change in the real app, use the project skill `.claude/skills/verify-sports-cli` (a pseudo-terminal driver with a feature map); `scripts/run_all.sh` drives every mapped feature and needs a network without a sandbox proxy. Run `./sports-cli` in a terminal, or `./sports-cli --list --league nba` for non-interactive output. Live provider tests depend on current games, upstream availability, and network access; keep deterministic fixtures in the unit tests and report which real-player or live checks were possible.
 
+To prove the installer, the failed-install help message and the uninstaller in a throwaway home folder, run the project skill `.claude/skills/verify-install` (`scripts/drive.sh`, about 30 seconds).
+
 To recheck screens and keys the same way each time, run the scripted walks in the project skill `.claude/skills/walk-sports-cli`; its ledger records each step's screen, key or click, and what showed.
 
 ## Code map
@@ -46,7 +48,7 @@ To recheck screens and keys the same way each time, run the scripted walks in th
 - `native/`: the Rune front end in Rust, a Mac window with the same screens and keys, driven the same way as `opentui/`. It plays the chosen stream inside the window (`native/src/video.rs`: AVPlayer frames into a Rune `NativeSurface`). `docs/native-ui.md` is its design; `verification/native` models its sync with Python, checked by the `verify-native-client` skill; `native/verify.sh` proves in-window video headless.
 - `sportscli/smart_search.py`: local query parsing, team suggestions, and result ranking. `sportscli/data/teams.json` is the bundled ESPN team-name index; refresh it with `python3 -m sportscli.tools.update_teams` when appropriate.
 - `sportscli/screens.py`: the screen statechart. `App.handle_key` implements it and `tests/test_screens.py` explores every screen state with every key against it; update the chart and `docs/screens.md` with any navigation change.
-- `verification/relay/`: TLA+ model of the backup-source failover with `check.sh`; the project skill `verify-relay-failover` says when and how to run it, and `docs/relay-failover.md` shows the verdicts and charts.
+- `verification/relay/`: TLA+ models of the backup-source failover (`RelayFailover.tla`) and of how a stream with several backups starts (`BackupChoice.tla`), with `check.sh`; the project skill `verify-relay-failover` says when and how to run it, and `docs/relay-failover.md` shows the verdicts and charts.
 - `sportscli/players.py`: lazy player-name search and bounded roster verification; keep this separate from team search so slow rosters cannot block the UI.
 - `sportscli/progress.py`: optional Rich-backed download progress with a standard-library fallback; no model is downloaded by default.
 - `sportscli/providers.py`: bounded public-page discovery and supported embedded player resolution.

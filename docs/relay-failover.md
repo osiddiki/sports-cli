@@ -170,3 +170,14 @@ stateDiagram-v2
   class s4 breaks
   class s4 bugPath
 ```
+
+## Starting with several backups
+
+`verification/relay/BackupChoice.tla` models the moment before any of the above: every source's playlist loads at once, and one backup is kept. It checks four promises over three backups of every kind, loading or failing in every order around the deadline (124,416 states):
+
+- The stream never starts on a primary that did not load.
+- A ready primary is never kept waiting past the deadline (`Merged.PREPARE_WAIT`, six seconds) for a backup that has not answered.
+- The backup kept had loaded in time. A late one is never used.
+- When a loaded backup lines up with the primary, the first such backup offered is kept. Otherwise the first that loaded is.
+
+Two broken variants prove the check can fail: the old start, which waited for every playlist, breaks the second promise, and keeping the first loaded backup without comparing breaks the fourth. `tests/test_backup_choice_model.py` holds the real code to the same rule in 1,884 cases.
