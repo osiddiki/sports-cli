@@ -112,7 +112,7 @@ def view(a):
                             pick=index is not None, cursor=index))
         if not a.search_results:
             waiting = bool(a.search_inflight & a.search_needed or a.player_due or a.player_key in a.player_inflight)
-            out['empty'] = ('Try: stephen curry  |  lakers today  |  mavs vs rockets' if not a.search_query else
+            out['empty'] = ('Try: stephen curry  ·  lakers today  ·  mavs vs rockets' if not a.search_query else
                             'Looking for matches' if waiting else 'Keep typing a player, team or league.')
         out['actions'] = 'Type to search   ↑/↓ select   Enter open'
         out['global'] = 'Esc back   Ctrl-U clear   Ctrl-X quit'

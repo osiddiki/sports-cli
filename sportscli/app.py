@@ -81,8 +81,8 @@ SETTING_NOTES = {
     'When an ad is detected': 'Mute only, show a break screen, or show another game in a corner.',
     'Ad mute': 'Mutes the sound during ads. Mute ads needs the ad detector.',
     'Ad detector': 'Spots ads on this computer. Installing it downloads about 150 MB.',
-    'Extra sources add-on': 'The address of an optional add-on that lists more sources.',
-    'Pay-per-view helper folder': 'Where the optional pay-per-view helper lives. Leave it on default.',
+    'More sources (add-on)': 'The address of an optional add-on that lists more streams.',
+    'Pay-per-view helper location': 'Where the optional pay-per-view helper lives. Leave it on standard.',
 }
 
 # Footers that the terminal and the remote front ends share.
@@ -317,7 +317,7 @@ def bundle_replays(hits, league=None):
 
 # What a source's check status says on screen; anything else is a failure such as "HTTP 404".
 CHECK_WORDS = {'checking': 'Checking…', 'testing': 'Checking…', 'Opening': 'Opening…', 'Inspecting': 'Opening…',
-               '?': 'Not checked', 'n/a': 'Not checked', None: 'Not checked'}
+               '?': 'Not tested yet', 'n/a': 'Not tested yet', None: 'Not tested yet'}
 
 
 def listed_height(feed):
@@ -1136,8 +1136,7 @@ class App:
         rows = []
         for index, (feed, view) in enumerate(zip(feeds, views)):
             notes = [view.detail if view.check == 'Not working' else '']
-            if feed.kind == 'ppv' and view.check == 'Not checked':
-                view = replace(view, check='Checks on Enter' if ppv else 'Needs setup')
+            if feed.kind == 'ppv' and not ppv and view.check == 'Not tested yet': view = replace(view, check='Needs setup')
             # A known broadcast side goes in the name; a column of dashes says nothing.
             side = f'  ·  {view.side.title()} broadcast' if view.side != '-' else ''
             rows.append(replace(view, name=f'Stream {index + 1}' + side + ('  ·  Recommended' if index == best else ''),
@@ -1153,8 +1152,8 @@ class App:
         failed = (sum(1 for f in self.feeds if id(f) not in self.hidden_feeds and self.failed_check(f))
                   if self.show_failed else self.hidden_failed())
         return ('Enter play   ' + ('a home/away   ' if self.sided() else '')
-                + (f'v hide {failed} failed   ' if self.show_failed and failed else f'v show {failed} failed   ' if failed else '')
-                + 'f filter   r check again   Esc back')
+                + (f'v hide {failed} failed   ' if self.show_failed and failed else f'v {failed} failed   ' if failed else '')
+                + 'f filter   r recheck   Esc back')
 
     def failed_check(self, feed):
         status = self.manual_status.get(id(feed), self.auto_checks.get(id(feed)))
@@ -1196,7 +1195,7 @@ class App:
         other = [(i, hit) for i, hit in enumerate(hits) if i and hit.kind == 'team']
         matching_players = [(i, hit) for i, hit in enumerate(hits) if hit.kind == 'player']
         rows.append((None, '   LIVE', 'heading'))
-        if not live: rows.append((None, '      —', 'empty'))
+        if not live: rows.append((None, '      No live game right now', 'empty'))
         for i, hit in live:
             if hit.kind == 'side':
                 rows.append((i, f'       {hit.side.title()} broadcast  ·  {hit.count} stream{"s" if hit.count != 1 else ""}', ''))
@@ -1317,7 +1316,7 @@ class App:
             self.more_below(4+capacity, sum(1 for line in lines[start+capacity:] if line[0] is not None))
             if not self.search_results:
                 waiting = bool(self.search_inflight & self.search_needed or self.player_due or self.player_key in self.player_inflight)
-                text = 'Try: stephen curry  |  lakers today  |  mavs vs rockets' if not self.search_query else self.spinner() + ' Looking for matches' if waiting else 'Keep typing a player, team or league.'
+                text = 'Try: stephen curry  ·  lakers today  ·  mavs vs rockets' if not self.search_query else self.spinner() + ' Looking for matches' if waiting else 'Keep typing a player, team or league.'
                 self.put(4, 2, text)
             self.keys_line(h-4, '↑↓ select   Enter open   Esc back')
             self.keys_line(h-3, 'Ctrl-U clear', curses.A_DIM)
@@ -1449,7 +1448,8 @@ class App:
                 game = self.games[self.gi]
                 start = game.start.astimezone()
                 self.put(2, 1, f'{game.title}  ·  {start:%a %b} {start.day}, ' + f'{start:%I:%M %p}'.lstrip('0'))
-                self.put(3, 1, 'On TV: ' + (', '.join(game.broadcasts) or 'not listed'), curses.A_DIM)
+                waiting = '' if game.state == 'live' else 'Not started yet  ·  '
+                self.put(3, 1, waiting + 'On TV: ' + (', '.join(game.broadcasts) or 'not listed'), curses.A_DIM)
             fs = self.visible_feeds()
             ad_mode = 'AI NBA' if self.ai_ad_mute else 'AI preview' if self.ai_ad_observe else 'marked replays' if self.ad_mute else 'off'
             context = [] if self.player == 'mpv' else [f'Plays in {self.player.upper()}']
@@ -2297,11 +2297,15 @@ class App:
                        min(old_index, max(0, len(visible)-1)) if chosen else 0)
             statuses = [self.auto_checks.get(id(feed)) for feed in self.feeds if id(feed) not in self.hidden_feeds]
             if self.mode == 'feeds' and 'checking' not in statuses and not self.feed_pending:
-                working = sum(1 for status in statuses if status == 'OK')
-                broken = sum(1 for feed in self.feeds if id(feed) not in self.hidden_feeds and self.failed_check(feed))
-                unchecked = len(statuses) - working - broken
+                # Count what the list shows, so the status line, the rows and the v hint agree.
+                shown = self.visible_feeds()
+                working = sum(1 for feed in shown if self.auto_checks.get(id(feed)) == 'OK')
+                broken = sum(1 for feed in shown if self.failed_check(feed))
+                unchecked = len(shown) - working - broken
+                hidden = 0 if self.show_failed else self.hidden_failed()
                 self.message = (f'{working} working' + (f', {broken} not working' if broken else '')
-                                + (f', {unchecked} checked when played' if unchecked else '') + '.')
+                                + (f', {unchecked} checked when played' if unchecked else '')
+                                + (f'; {hidden} more failed, v shows them' if hidden else '') + '.')
         return changed
 
     def prompt(self, label, initial=''):
@@ -3088,8 +3092,8 @@ class App:
             ('Ad mute', dict(AD_MUTE_CHOICES)[self.ad_mute_choice()], self.cycle_ad_mute),
             ('When an ad is detected', breaks.LABELS[self.ad_breaks] + ('' if self.ai_ad_mute else ' (needs Ad mute)'), self.cycle_ad_breaks),
             ('Ad detector', self.ad_detector_value(), self.install_ad_detector),
-            ('Extra sources add-on', 'set' if self.config.get('addon') else 'none', self.configure_addon),
-            ('Pay-per-view helper folder', self.config.get('resolver_dir') or 'default', self.configure_resolver),
+            ('More sources (add-on)', 'set' if self.config.get('addon') else 'none', self.configure_addon),
+            ('Pay-per-view helper location', self.config.get('resolver_dir') or 'standard', self.configure_resolver),
         ]
 
     def cycle_player(self):

@@ -593,7 +593,7 @@ class DiscoveryTests(unittest.TestCase):
     def test_s_changes_sport_and_settings_set_the_resolver(self):
         # Home -> s (sport list) -> NBA -> a game's sources -> s (sport picker) -> Esc back to sources
         # -> , settings -> Down to the PPV resolver row -> Enter. Ad mute and Ad detector sit above it.
-        downs = [name for name, _, _ in nba.App(None, {}).settings_rows()].index('Pay-per-view helper folder')
+        downs = [name for name, _, _ in nba.App(None, {}).settings_rows()].index('Pay-per-view helper location')
         class Screen:
             def __init__(self): self.keys = iter([ord('s'), 10, 10, ord('s'), 27, ord(','), *[ord('j')] * downs, 10, ord('q')])
             def keypad(self, value): pass
