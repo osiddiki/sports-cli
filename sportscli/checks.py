@@ -35,6 +35,7 @@ class CheckCache:
         self.keep = keep
         self.clock = clock
         self.entries = self._load()
+        self.dirty = False
 
     def _load(self):
         try:
@@ -56,10 +57,13 @@ class CheckCache:
 
     def put(self, feed, status, height=None, speed=None):
         if status != 'OK' and not (isinstance(status, str) and status.startswith('HTTP ')): return
+        self.dirty = True
         self.entries[key(feed)] = Entry(status, height if isinstance(height, int) else None, self.clock(),
                                         float(speed) if isinstance(speed, (int, float)) else None)
 
     def save(self):
+        if not self.dirty: return
+        self.dirty = False
         self.entries = {name: entry for name, entry in self.entries.items() if self._fresh(entry)}
         data = {name: {'status': entry.status, 'height': entry.height, 'checked_at': entry.checked_at, 'speed': entry.speed}
                 for name, entry in self.entries.items()}

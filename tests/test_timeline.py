@@ -126,5 +126,16 @@ class TimelineTests(unittest.TestCase):
         self.assertEqual(sent['seek'], playhead)
 
 
+    def test_a_playlist_the_worker_already_fetched_is_not_downloaded_again_on_the_screen_thread(self):
+        screen = type('Screen', (), {'getmaxyx': lambda self: (24, 80)})()
+        player = nba.App(screen, {})
+        self.addCleanup(player.close)
+        player.feed_context = 'replay'; player.league = 'nba'
+        player.replay_manifests = {'https://cdn.example/a.m3u8': quarters()}
+        with patch.object(timeline, 'media_playlist', side_effect=AssertionError('downloaded on the screen thread')):
+            _, marks, _ = player.replay_marks('https://cdn.example/a.m3u8', {}, ['mpv', '--', 'https://cdn.example/a.m3u8'])
+        self.assertEqual(marks['chapters'][0]['name'], 'Q1')
+        self.assertEqual(player.replay_manifests, {})
+
 if __name__ == '__main__':
     unittest.main()

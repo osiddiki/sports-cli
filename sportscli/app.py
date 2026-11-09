@@ -486,11 +486,15 @@ def get_team_games(team_id, league, today=None):
 def search_replay_pages(spec, team, opponent='', date=None, canceled=lambda: False):
     """Read bounded archive pages for a team; stop early for a specific game."""
     found, seen = [], set()
-    for page in range(2, 7):
+    specs = [page for page in (replays.page_spec(spec, number) for number in range(2, 7)) if page]
+    # One specific game stops at the first page that has it; a team's history wants every page, so fetch them together.
+    together = not (opponent or date) and len(specs) > 1
+    if together:
         if canceled(): raise concurrent.futures.CancelledError()
-        page_spec = replays.page_spec(spec, page)
-        if not page_spec: break
-        items = replays.listing(page_spec)
+        with concurrent.futures.ThreadPoolExecutor(len(specs)) as pool: pages = list(pool.map(replays.listing, specs))
+    for index, page_spec in enumerate(specs):
+        if canceled(): raise concurrent.futures.CancelledError()
+        items = pages[index] if together else replays.listing(page_spec)
         for item in items:
             title = smart_search.normalize(item.title)
             if smart_search.normalize(team) not in title: continue
@@ -662,14 +666,13 @@ def addon_feeds(manifest, game):
     if not candidates:
         candidates = [c for c in catalogs if c.get('type') in ('sport', 'tv')][:3]
     found = {}
-    for cat in candidates[:4]:
-        typ, ident = str(cat.get('type', '')), str(cat.get('id', ''))
-        if not re.fullmatch(r'[\w.-]+', typ) or not re.fullmatch(r'[\w.-]+', ident):
-            continue
-        try:
-            data = request(f'{base}/catalog/{typ}/{ident}.json')
-        except (OSError, ValueError):
-            continue
+    wanted = [(str(cat.get('type', '')), str(cat.get('id', ''))) for cat in candidates[:4]]
+    wanted = [(typ, ident) for typ, ident in wanted if re.fullmatch(r'[\w.-]+', typ) and re.fullmatch(r'[\w.-]+', ident)]
+    def catalog(pair):
+        try: return request(f'{base}/catalog/{pair[0]}/{pair[1]}.json')
+        except (OSError, ValueError): return {}
+    with concurrent.futures.ThreadPoolExecutor(max(1, len(wanted))) as pool: answers = list(pool.map(catalog, wanted))
+    for (typ, ident), data in zip(wanted, answers):
         for item in data.get('metas', []):
             if title_matches(item.get('name', ''), game):
                 found[(typ, str(item.get('id', '')))] = item
@@ -1019,6 +1022,7 @@ class App:
         self.manual_checks = set()
         self.manual_queue = queue.Queue()
         self.manual_status = {}
+        self.replay_manifests = {}  # url -> playlist fetched by the resolve worker, read once by play()
         self.action_serial = 0
         self.action_current = None
         self.action_inflight = set()
@@ -2266,6 +2270,7 @@ class App:
             if not self.closed.is_set(): self.auto_queue.put((generation, feed, status, height, speed))
 
     def poll_auto_checks(self):
+        if self.auto_queue.empty(): return False
         changed = False
         before = self.visible_feeds()
         # A source the user picked stays selected as results reorder the list; otherwise the top one is.
@@ -2284,7 +2289,8 @@ class App:
             self.check_cache.put(feed, status, height, speed)
             changed = True
         if changed:
-            self.check_cache.save()
+            # One write when the batch settles, not one per result; close() writes whatever is left.
+            if 'checking' not in self.auto_checks.values(): self.check_cache.save()
             visible = self.visible_feeds()
             selected_index = next((index for index, item in enumerate(visible) if item is selected), None)
             self.fi = (selected_index if selected_index is not None else
@@ -2451,7 +2457,7 @@ class App:
         if self.feed_context != 'replay':
             return command, None, ''
         try:
-            manifest = timeline.media_playlist(url, headers)
+            manifest = self.replay_manifests.pop(url, None) or timeline.media_playlist(url, headers)
             sport = LEAGUES.get(self.league, (None, None, None))[2]
             built = timeline.from_playlist(manifest, sport)
         except (OSError, ValueError, TypeError, urllib.error.URLError):
@@ -2617,6 +2623,7 @@ class App:
         self.action_inflight.add(serial)
         self.message = f'{"Opening" if action == "play" else "Inspecting"} {feed.source}; Esc cancels.'
         backups = self.backup_candidates(feed) if action == 'play' else []
+        context = self.feed_context
         def worker():
             pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(backups)) if backups else None
             # Resolve backups alongside the selected source; never let them delay it for long.
@@ -2624,6 +2631,10 @@ class App:
             try:
                 url, headers = self.resolve_feed(feed)
                 if pending: url, headers = self.merge_backup(url, headers, pending)
+                if action == 'play' and context == 'replay':
+                    # Fetch the replay's playlist here, off the screen thread; play() reads it for the timeline.
+                    try: self.replay_manifests = {url: timeline.media_playlist(url, headers)}
+                    except (OSError, ValueError, TypeError): pass
                 result, error = (url, headers), None
             except Exception as exc:
                 result, error = None, exc
@@ -2781,6 +2792,7 @@ class App:
 
     def close(self):
         self.closed.set()
+        self.check_cache.save()
         self.tonight_stop.set()
         self.stop_schedule_workers()
         if self.player_worker_started:
@@ -2929,16 +2941,19 @@ class App:
 
     def cursor(self):
         """The current list's selection field and its length."""
-        size = {'home': len(self.home_rows()), 'leagues': len(LEAGUES), 'games': len(self.games), 'replays': len(self.replays),
-                'channels': len(self.visible_channels()), 'settings': len(self.settings_rows()),
-                'replay_sources': len(self.current_bundle.sources) if self.current_bundle else 0,
-                'feeds': len(self.visible_feeds())}.get(self.mode, 0)
+        # Only the current screen's list is counted: the others can be thousands of rows to filter.
+        sizes = {'home': lambda: len(self.home_rows()), 'leagues': lambda: len(LEAGUES), 'games': lambda: len(self.games),
+                 'replays': lambda: len(self.replays), 'channels': lambda: len(self.visible_channels()),
+                 'settings': lambda: len(self.settings_rows()),
+                 'replay_sources': lambda: len(self.current_bundle.sources) if self.current_bundle else 0,
+                 'feeds': lambda: len(self.visible_feeds())}
+        size = sizes[self.mode]() if self.mode in sizes else 0
         field = {'home': 'home_index', 'leagues': 'league_index', 'games': 'gi', 'replays': 'ri', 'channels': 'ci',
                  'settings': 'settings_index', 'replay_sources': 'bundle_index', 'feeds': 'fi'}.get(self.mode)
         return field, size
 
-    def select(self, row):
-        field, size = self.cursor()
+    def select(self, row, cursor=None):
+        field, size = cursor or self.cursor()
         if not field: return
         setattr(self, field, min(max(0, size-1), max(0, row)))
         if self.mode == 'home': self.home_touched = True
@@ -2946,8 +2961,8 @@ class App:
         if self.mode == 'feeds': self.feed_selection_touched = True
 
     def move(self, step):
-        field, _ = self.cursor()
-        if field: self.select(getattr(self, field) + step)
+        cursor = self.cursor()
+        if cursor[0]: self.select(getattr(self, cursor[0]) + step, cursor)
 
     def open_row(self, row, typed):
         """1 to 9: open that row of the list, as moving to it and pressing Enter would."""
