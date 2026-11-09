@@ -111,7 +111,7 @@ class ReopenSourcesTests(unittest.TestCase):
         with patch.object(nba.time, 'time', return_value=time.time() + 40 * 60): self.app.render()
         text = '\n'.join(screen.lines)
         self.assertIn('OK', text); self.assertIn('Not working', text)
-        self.assertIn('Offline right now. Pick another source.', text)
+        self.assertIn('Offline right now. Pick another stream.', text)
         self.assertNotIn('HTTP 404 40m', text)
 
     def test_r_rechecks_every_source(self):

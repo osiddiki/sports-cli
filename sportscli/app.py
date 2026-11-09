@@ -352,8 +352,8 @@ def describe_feed(feed, record=None, automatic=None):
         status = CHECK_WORDS[automatic]
     else:
         status = 'Not working'
-        details.insert(0, 'Did not play when checked. Pick another source.' if automatic == 'Failed' else
-                       'Offline right now. Pick another source.')
+        details.insert(0, 'Did not play when checked. Pick another stream.' if automatic == 'Failed' else
+                       'Offline right now. Pick another stream.')
     if feed.kind == 'web': details.append('Opens in your web browser.')
     return FeedDisplay(f'{feed.source} / {server}', feed.side.upper() if feed.side != 'unknown' else '-',
                        quality, status, '  ·  '.join(details))
@@ -1132,8 +1132,11 @@ class App:
         rows = []
         for index, (feed, view) in enumerate(zip(feeds, views)):
             notes = [view.detail if view.check == 'Not working' else '']
-            if feed.kind == 'ppv': notes.append('looked up when you press Enter' if ppv else 'needs a one-time setup first')
-            rows.append(replace(view, name=f'Stream {index + 1}' + ('  ·  Recommended' if index == best else ''),
+            if feed.kind == 'ppv' and view.check == 'Not checked':
+                view = replace(view, check='Checks on Enter' if ppv else 'Needs setup')
+            # A known broadcast side goes in the name; a column of dashes says nothing.
+            side = f'  ·  {view.side.title()} broadcast' if view.side != '-' else ''
+            rows.append(replace(view, name=f'Stream {index + 1}' + side + ('  ·  Recommended' if index == best else ''),
                                 detail='  ·  '.join(filter(None, notes)), site=view.name))
         return rows
 
@@ -1146,7 +1149,7 @@ class App:
         failed = (sum(1 for f in self.feeds if id(f) not in self.hidden_feeds and self.failed_check(f))
                   if self.show_failed else self.hidden_failed())
         return ('Enter play   ' + ('a home/away   ' if self.sided() else '')
-                + (f'v hide {failed} not working   ' if self.show_failed and failed else f'v show {failed} not working   ' if failed else '')
+                + (f'v hide {failed} failed   ' if self.show_failed and failed else f'v show {failed} failed   ' if failed else '')
                 + 'f filter   r check again   Esc back')
 
     def failed_check(self, feed):
@@ -1304,7 +1307,7 @@ class App:
                 selected = index is not None and index == self.search_position
                 attr = (curses.A_REVERSE if selected else curses.A_BOLD if style in ('live', 'team') else
                         curses.A_DIM if style in ('heading', 'player-heading', 'channel-heading', 'empty') else 0)
-                self.put(y, 2, f'{">" if selected else " "} {text}', attr)
+                self.put(y, 2, f'> {text:<{w-8}}' if selected else f'  {text}', attr)
                 # Live games carry Home's red light.
                 if style == 'live': self.put(y, 2 + len(text) - len(text.lstrip()), '●', curses.A_REVERSE | curses.A_BOLD if selected else self.on_air)
             self.more_below(4+capacity, sum(1 for line in lines[start+capacity:] if line[0] is not None))
@@ -1312,8 +1315,8 @@ class App:
                 waiting = bool(self.search_inflight & self.search_needed or self.player_due or self.player_key in self.player_inflight)
                 text = 'Try: stephen curry  |  lakers today  |  mavs vs rockets' if not self.search_query else self.spinner() + ' Looking for matches' if waiting else 'Keep typing a player, team or league.'
                 self.put(4, 2, text)
-            self.put(h-4, 1, 'Type to search   ↑↓ select   Enter open' if w >= 55 else 'Type   ↑↓ select   Enter open')
-            self.keys_line(h-3, 'Esc back   Ctrl-U clear', curses.A_DIM)
+            self.keys_line(h-4, '↑↓ select   Enter open   Esc back')
+            self.keys_line(h-3, 'Ctrl-U clear', curses.A_DIM)
         elif self.mode == 'help':
             rows = max(1, h-7)
             for y, line in enumerate(HELP_LINES[self.help_scroll:self.help_scroll+rows], 3):
@@ -1437,7 +1440,7 @@ class App:
                 self.put(3, 1, replays.source_heading(self.current_replay))
             elif self.feed_context == 'tv':
                 self.put(2, 1, self.current_channel.name)
-                self.put(3, 1, 'Live TV')
+                self.put(3, 1, 'Live TV channel', curses.A_DIM)
             else:
                 game = self.games[self.gi]
                 start = game.start.astimezone()
@@ -1456,9 +1459,8 @@ class App:
             if not self.dual_stream and self.feed_context in ('live', 'tv'): context.append('backup off')
             self.put(4, 1, '  ·  '.join(context), curses.A_DIM)
             self.fi = min(self.fi, max(0, len(fs)-1))
-            sided = self.sided()
-            name_width = max(14, min(50, w-(37 if sided else 31)))
-            columns = f'{"STREAM":<{name_width}}  ' + (f'{"FEED":5} ' if sided else '') + f'{"PICTURE":8} STATUS'
+            name_width = max(14, min(50, w-31))
+            columns = f'{"STREAM":<{name_width}}  {"PICTURE":8} STATUS'
             self.put(5, 4, columns, curses.A_DIM)
             actions = self.feed_actions()
             bottom = h-3-len(self.action_lines(actions))
@@ -1475,7 +1477,7 @@ class App:
                 short_name = view.name if len(view.name) <= name_width else view.name[:name_width-1] + '…'
                 attr = (curses.A_REVERSE if selected else curses.A_DIM if view.check == 'Not working' else
                         curses.A_BOLD if view.name.endswith('Recommended') else 0)
-                row = f'{short_name:<{name_width}}  ' + (f'{view.side:5} ' if sided else '') + f'{view.quality:8} {view.check}'
+                row = f'{short_name:<{name_width}}  {view.quality:8} {view.check}'
                 row = f'{row:<{w-6}}' if selected else row
                 self.put(y, 2, f'{">" if selected else " "} {row}', attr)
                 if heights[index] == 2:
@@ -1604,8 +1606,8 @@ class App:
         self.message = MENU_NOTES[HOME_ITEMS[self.home_index][0]] if self.home_index < len(HOME_ITEMS) else self.ARRIVAL['home']
 
     def home_actions(self):
-        if self.home_index == 0: return 'Enter or ↓ the games   ←→ choose'
-        if self.home_index < len(HOME_ITEMS): return f'Enter open {HOME_ITEMS[self.home_index][1]}   ←→ choose   ↓ games'
+        if self.home_index == 0: return '↓ back to games   ←→ choose'
+        if self.home_index < len(HOME_ITEMS): return f'Enter open {HOME_ITEMS[self.home_index][1]}   ←→ choose   ↓ back to games'
         return 'Enter see streams   ↑ menu   r reload'
 
     def more_below(self, y, hidden):
@@ -2091,7 +2093,7 @@ class App:
             if error: self.replay_errors.append(f'{name}: {error}')
             changed = True
         if changed and self.mode == 'replays':
-            self.message = f'{len(self.replays)} replays found'
+            self.message = f'{len(self.replays)} replays found.'
             if self.replay_pending: self.message += f' | checking {self.replay_pending} catalogs...'
             elif self.replay_errors: self.message += ' Some sites did not answer.'
         return changed
@@ -2124,7 +2126,7 @@ class App:
             if self.mode == 'games' and self.games and self.games[self.gi].id == REDZONE: self.open_redzone()
         elif self.mode == 'channels':
             # A directory that is down only means fewer sources; name it without the network error.
-            self.message = ('Some channels may be missing: one list did not load. r tries again.' if errors else self.channel_summary())
+            self.message = ('Some channels could not be loaded. Press r to try again.' if errors else self.channel_summary())
         elif self.mode == 'search' and self.search_plan is not None:
             self.rebuild_global_results()
         return True
@@ -2290,7 +2292,10 @@ class App:
             statuses = [self.auto_checks.get(id(feed)) for feed in self.feeds if id(feed) not in self.hidden_feeds]
             if self.mode == 'feeds' and 'checking' not in statuses and not self.feed_pending:
                 working = sum(1 for status in statuses if status == 'OK')
-                self.message = f'Checked: {working} of {len(statuses)} streams work.'
+                broken = sum(1 for feed in self.feeds if id(feed) not in self.hidden_feeds and self.failed_check(feed))
+                unchecked = len(statuses) - working - broken
+                self.message = (f'{working} working' + (f', {broken} not working' if broken else '')
+                                + (f', {unchecked} checked when played' if unchecked else '') + '.')
         return changed
 
     def prompt(self, label, initial=''):

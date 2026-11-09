@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import functools
 import html
 import re
 import urllib.parse
@@ -82,8 +83,10 @@ class Channel:
     featured: bool = False
 
 
+@functools.lru_cache(maxsize=32768)
 def key(name):
-    """Normalize a provider's channel name for matching: drop quality, region tags and punctuation."""
+    """Normalize a provider's channel name for matching: drop quality, region tags and punctuation.
+    Cached: filters and search ask for every channel's key on each keystroke and redraw."""
     name = re.sub(r'\[[^\]]*\]|\([^)]*\)', ' ', name.casefold())
     name = re.sub(r'\b(?:hd|fhd|sd|uhd|4k|east|feed)\b', ' ', name)
     return ' '.join(re.sub(r'[^a-z0-9/+&-]+', ' ', name).split())
