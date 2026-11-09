@@ -204,5 +204,27 @@ class TvModeTests(unittest.TestCase):
         self.assertEqual(app.backup_candidates(first), [second])
 
 
+class FreeTvTests(unittest.TestCase):
+    def test_free_tv_keeps_its_english_groups_and_skips_youtube_pages(self):
+        text = """#EXTM3U
+#EXTINF:-1 tvg-name="ABC News Live" group-title="News",ABC News Live
+https://abc.example/news/master.m3u8
+#EXTINF:-1 tvg-name="Buzzr" group-title="USA",Buzzr Ⓖ
+https://buzzr.example/live.m3u8
+#EXTINF:-1 tvg-name="Rai 1" group-title="Italy",Rai 1 Ⓖ
+https://rai.example/1.m3u8
+#EXTINF:-1 tvg-name="Sky News" group-title="UK",Sky News Ⓨ
+https://www.youtube.com/watch?v=abc
+"""
+        entry = next(entry for entry in tv.PLAYLISTS if entry.provider == 'Free-TV')
+        found = tv.iptv_channels(text, entry.provider, entry.only, entry.groups)
+        self.assertEqual([(name, source.label) for name, source in found],
+                         [('ABC News Live', 'stream'), ('Buzzr', 'stream (may be US-only)')])
+
+    def test_a_channel_in_two_iptv_org_lists_keeps_one_source(self):
+        text = '#EXTINF:-1 group-title="Sports",ESPN\nhttps://espn.example/live.m3u8\n'
+        found = tv.iptv_channels(text) + tv.iptv_channels(text)
+        self.assertEqual([len(channel.sources) for channel in tv.group(found) if channel.name == 'ESPN'], [1])
+
 if __name__ == '__main__':
     unittest.main()

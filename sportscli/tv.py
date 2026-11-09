@@ -1,4 +1,4 @@
-"""Live TV channels: free direct streams from iptv-org plus DaddyLive's 24/7 list."""
+"""Live TV channels: free direct streams from public M3U playlists plus DaddyLive's 24/7 list."""
 from __future__ import annotations
 
 import concurrent.futures
@@ -7,16 +7,29 @@ import re
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field, replace
+from typing import NamedTuple, Optional
 
 from . import providers
 
+class Playlist(NamedTuple):
+    provider: str
+    url: str
+    only: Optional[str] = None       # a regex a channel's key must fully match to be kept
+    groups: frozenset = frozenset()  # group-title values to keep; empty keeps every group
+
+
 IPTV_US = 'https://iptv-org.github.io/iptv/countries/us.m3u'
-# Free playlists listed by FMHY (rentry.co/IPTV-Playlists) that carry US news and network channels.
-PLAYLISTS = [('iptv-org', IPTV_US),
-             ('doms9', 'https://raw.githubusercontent.com/doms9/iptv/default/M3U8/TV.m3u8'),
-             ('Aria', 'https://raw.githubusercontent.com/aria-tv/aria/main/aria%2B/united_states.m3u'),
+# Free playlists listed by FMHY (rentry.co/IPTV-Playlists) that carry English news, network and sports channels.
+PLAYLISTS = [Playlist('iptv-org', IPTV_US),
+             Playlist('iptv-org', 'https://iptv-org.github.io/iptv/languages/eng.m3u'),
+             Playlist('iptv-org', 'https://iptv-org.github.io/iptv/categories/sports.m3u'),
+             Playlist('doms9', 'https://raw.githubusercontent.com/doms9/iptv/default/M3U8/TV.m3u8'),
+             Playlist('Aria', 'https://raw.githubusercontent.com/aria-tv/aria/main/aria%2B/united_states.m3u'),
+             # Legal free channels; most of the list is Italian, Polish and other national TV, so keep the English groups.
+             Playlist('Free-TV', 'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8',
+                      groups=frozenset({'USA', 'UK', 'Canada', 'Australia', 'Ireland', 'News', 'Business', 'Weather'})),
              # Business channels, kept only for the regional feeds listed in ALTERNATES (the whole list is mostly foreign).
-             ('iptv-org', 'https://iptv-org.github.io/iptv/categories/business.m3u', r'cnbc (?:asia|europe|world|uk)')]
+             Playlist('iptv-org', 'https://iptv-org.github.io/iptv/categories/business.m3u', r'cnbc (?:asia|europe|world|uk)')]
 DADDYLIVE = 'https://dlive.sx/24-7-channels.php'
 MAX_PLAYLIST = 4_000_000
 ADULT = re.compile(r'18\+|\bxxx\b|\badult\b|\bporn', re.I)
@@ -76,9 +89,10 @@ def key(name):
     return ' '.join(re.sub(r'[^a-z0-9/+&-]+', ' ', name).split())
 
 
-def iptv_channels(text, provider='iptv-org', only=None):
+def iptv_channels(text, provider='iptv-org', only=None, groups=frozenset()):
     """Parse an M3U playlist into direct sources, keeping per-stream referer and user agent.
-    `only` is a regex that a channel's key must fully match to be kept."""
+    `only` is a regex that a channel's key must fully match to be kept; `groups`, when given,
+    the group-title values to keep."""
     out, info, options = [], None, {}
     for line in text.splitlines():
         line = line.strip()
@@ -89,16 +103,19 @@ def iptv_channels(text, provider='iptv-org', only=None):
             options[name.strip().lower()] = value.strip()
         elif line and not line.startswith('#') and info:
             title = info.rsplit(',', 1)[-1].strip()
-            # Aria marks streams its own checks found dead.
-            dead = 'tvg-status="not-working"' in info
-            wanted = not only or re.fullmatch(only, key(re.sub(r'\s*\(\d{3,4}p\)', '', title)))
+            # Aria marks streams its own checks found dead; Free-TV marks YouTube pages, which are not streams, with Ⓨ.
+            dead = 'tvg-status="not-working"' in info or 'Ⓨ' in title
+            group = re.search(r'group-title="([^"]*)"', info)
+            wanted = ((not only or re.fullmatch(only, key(re.sub(r'\s*\(\d{3,4}p\)', '', title))))
+                      and (not groups or bool(group) and group.group(1) in groups))
             if title and wanted and not dead and not ADULT.search(title) and providers.public_url(line, any_port=True):
                 headers = []
                 if options.get('http-referrer'): headers.append(('Referer', options['http-referrer']))
                 if options.get('http-user-agent'): headers.append(('User-Agent', options['http-user-agent']))
                 # Playlists' quality labels are often wrong; checks measure the real resolution.
-                label = 'stream' + (' (may be US-only)' if 'geo-blocked' in title.casefold() else '')
-                clean = re.sub(r'\s*\[[^\]]*\]|\s*\(\d{3,4}p\)', '', title).strip()
+                geo = 'geo-blocked' in title.casefold() or 'Ⓖ' in title
+                label = 'stream' + (' (may be US-only)' if geo else '')
+                clean = re.sub(r'\s*\[[^\]]*\]|\s*\(\d{3,4}p\)|[\u24b6-\u24e9]', '', title).strip()
                 out.append((clean, Source(provider, label, line, 'direct', tuple(headers))))
             info, options = None, {}
     return out
@@ -129,13 +146,13 @@ def fetch_text(url, timeout=15):
 
 def directory():
     """Return (channels, errors); featured channels first, then everything else by name."""
-    def playlist(name, url, only=None): return iptv_channels(fetch_text(url), name, only)
+    def playlist(entry): return iptv_channels(fetch_text(entry.url), entry.provider, entry.only, entry.groups)
     def daddy():
         page, final = providers.fetch_html(DADDYLIVE, timeout=15, limit=3_000_000)
         return daddylive_channels(page, final)
     found, errors = [], []
     with concurrent.futures.ThreadPoolExecutor(len(PLAYLISTS) + 1) as pool:
-        jobs = [(entry[0], pool.submit(playlist, *entry)) for entry in PLAYLISTS] + [('DaddyLive', pool.submit(daddy))]
+        jobs = [(entry.provider, pool.submit(playlist, entry)) for entry in PLAYLISTS] + [('DaddyLive', pool.submit(daddy))]
         for name, future in jobs:
             try: found.extend(future.result())
             except Exception as exc: errors.append(f'{name}: {type(exc).__name__}')  # noqa: BLE001
