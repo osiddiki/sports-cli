@@ -207,6 +207,8 @@ def feeds_view(a, out):
                  else 'busy' if status in ('checking', 'testing', 'Opening', 'Inspecting') else '')
         out['rows'].append(row(shown.name, cells=[shown.name, shown.side, shown.quality, shown.check],
                                detail='  ·  '.join(filter(None, [shown.site, shown.detail])), style=style))
+    more = a.more_streams()
+    if more: out['rows'].append(row(f'More streams ({more})', cells=[f'More streams ({more})', '', '', ''], style='more'))
     failed = (sum(1 for f in a.feeds if id(f) not in a.hidden_feeds and a.failed_check(f)) if a.show_failed else a.hidden_failed())
     out['actions'] = a.feed_actions()
     out['empty'] = ('Looking for streams' if a.feed_pending else

@@ -135,6 +135,47 @@ class ReopenSourcesTests(unittest.TestCase):
             self.assertEqual(sorted(self.calls), ['down', 'high', 'low'])
 
 
+class ShortListTests(unittest.TestCase):
+    """A long list shows the best three streams and a row that brings back the rest."""
+    def test_three_streams_then_a_more_row_that_lists_the_rest_in_place(self):
+        app = nba.App(FakeScreen(), {}); self.addCleanup(app.close)
+        app.mode = 'feeds'; app.feed_context = 'tv'
+        app.current_channel = type('Channel', (), {'name': 'Example TV', 'sources': []})()
+        app.feeds = [nba.Feed('Site', f'stream {n}', url=f'https://example.invalid/{n}.m3u8', kind='direct') for n in range(7)]
+        for feed in app.feeds: app.auto_checks[id(feed)] = 'OK'
+        app.render()
+        screen = '\n'.join(app.scr.lines)
+        self.assertIn('Stream 3', screen); self.assertNotIn('Stream 4', screen)
+        self.assertIn('More streams (4)', screen)
+        for _ in range(3): app.handle_key(nba.curses.KEY_DOWN, None)
+        app.handle_key(10, '\n')
+        self.assertEqual((app.mode, len(app.visible_feeds())), ('feeds', 7), 'Enter on More streams lists all, and plays nothing')
+        self.assertEqual(app.fi, 3)
+        app.render()
+        self.assertIn('Stream 7', '\n'.join(app.scr.lines))
+
+    def test_four_streams_are_all_listed(self):
+        app = nba.App(FakeScreen(), {}); self.addCleanup(app.close)
+        app.mode = 'feeds'; app.feed_context = 'tv'
+        app.feeds = [nba.Feed('Site', f'stream {n}', url=f'https://example.invalid/{n}.m3u8', kind='direct') for n in range(4)]
+        self.assertEqual(len(app.visible_feeds()), 4)
+        self.assertEqual(app.more_streams(), 0)
+
+class LateCheckTests(unittest.TestCase):
+    def test_a_check_finishing_after_playback_keeps_the_playback_message(self):
+        app = nba.App(FakeScreen(), {}); self.addCleanup(app.close)
+        app.mode = 'feeds'; app.feed_context = 'tv'; app.feed_generation = 1
+        feed = nba.Feed('Site', 'one', url='https://example.invalid/1.m3u8', kind='direct')
+        app.feeds = [feed]; app.auto_checks[id(feed)] = 'checking'
+        app.message = 'Returned from mpv.'
+        app.auto_queue.put((1, feed, 'OK', 720, 3))
+        app.poll_auto_checks()
+        self.assertEqual(app.message, 'Returned from mpv.')
+        app.message = '1 streams found.'; app.auto_checks[id(feed)] = 'checking'
+        app.auto_queue.put((1, feed, 'OK', 720, 3))
+        app.poll_auto_checks()
+        self.assertEqual(app.message, '1 working.')
+
 class FakeScreen:
     def __init__(self): self.lines = []
     def getmaxyx(self): return 30, 120

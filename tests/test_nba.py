@@ -312,6 +312,11 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual([f.label for f in app.feeds],['New'])
         self.assertEqual(app.feed_pending,0)
 
+    def test_help_starts_with_a_short_page_and_fits_80_columns(self):
+        self.assertIn('ALL KEYS', nba.HELP_LINES)
+        self.assertLess(nba.HELP_LINES.index('ALL KEYS'), 10)
+        self.assertTrue(all(len(line) <= 76 for line in nba.HELP_LINES))
+
     def test_help_keeps_progressive_results(self):
         app = nba.App(None,{})
         app.games = [self.game]; app.mode = 'help'; app.help_return = 'feeds'
@@ -378,9 +383,9 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(app.auto_checks[id(feeds[1])], 'HTTP 403')
         self.assertNotIn(id(feeds[7]), app.auto_checks)
         # A failed check hides the source; v shows it again, last.
-        self.assertEqual(app.visible_feeds(), [feeds[0], *feeds[2:7], feeds[7]])
+        self.assertEqual(app.ranked_feeds(), [feeds[0], *feeds[2:7], feeds[7]])
         app.feed_key(ord('v'))
-        self.assertEqual(app.visible_feeds(), [feeds[0], *feeds[2:7], feeds[7], feeds[1]])
+        self.assertEqual(app.ranked_feeds(), [feeds[0], *feeds[2:7], feeds[7], feeds[1]])
         self.assertEqual(app.fi, 0)
         self.assertNotIn('health', app.config)
 
@@ -410,13 +415,13 @@ class DiscoveryTests(unittest.TestCase):
         for feed in feeds: app.auto_checks[id(feed)] = 'checking'
         for feed in feeds[:7]: app.auto_queue.put((1, feed, 'HTTP 403'))
         app.poll_auto_checks()
-        visible = app.visible_feeds()
+        visible = app.ranked_feeds()
         self.assertEqual(len(visible), nba.MIN_VISIBLE_SOURCES)
         self.assertIs(visible[0], feeds[7])  # the one that passed stays on top
         self.assertEqual(app.hidden_failed(), 3)
         app.hide_feed(feeds[0])  # an explicit failure stays hidden
-        self.assertNotIn(feeds[0], app.visible_feeds())
-        self.assertEqual(len(app.visible_feeds()), nba.MIN_VISIBLE_SOURCES)
+        self.assertNotIn(feeds[0], app.ranked_feeds())
+        self.assertEqual(len(app.ranked_feeds()), nba.MIN_VISIBLE_SOURCES)
 
     def test_smooth_sources_rank_above_faster_resolutions_that_may_lag(self):
         app = nba.App(None, {})

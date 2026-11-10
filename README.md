@@ -108,9 +108,9 @@ When using mpv, close its window or press `q` in mpv to return to the picker. II
 
 ## Watch on your phone
 
-`sports --web` (or `./sports-cli --web`) serves a phone-friendly page from this computer: live games with their checked and ranked sources, and Live TV channels. Video plays in the phone's browser. The computer does the source finding, checks, backup sources and headers, so it must stay on and keep the command running.
+Turn on **Watch on your phone** in Settings (`,`), or run `sports --web` (or `./sports-cli --web`) without the app. Either serves a phone-friendly page from this computer: live games with their checked and ranked sources, and Live TV channels. Video plays in the phone's browser. The computer does the source finding, checks, backup sources and headers, so it must stay on and keep the app (or the command) running.
 
-1. Run `sports --web`. It prints one or more links, such as `http://your-mac.tailnet.ts.net:8765/abc123/`.
+1. Choose **Watch on your phone** in Settings, which shows the link and a message about it, or run `sports --web`, which prints one or more links, such as `http://your-mac.tailnet.ts.net:8765/abc123/`.
 2. Open a link on your phone. On the same Wi-Fi, any of them works. Away from home, install [Tailscale](https://tailscale.com) on both devices and use the `ts.net` or `100.x` link.
 3. On an iPhone, tap Share, then **Add to Home Screen**, to open it like an app.
 
@@ -136,7 +136,7 @@ The app opens on **Home**: a menu of Tonight, By sport, Replays, Live TV, Search
 | `↑` from the first game, `←` `→` | On Home, reach the menu and choose in it; `1` to `6` open Tonight, By sport, Replays, Live TV, Search, Settings |
 | `Tab` | On Home, jump between the menu and the games |
 | `/` | Search teams, players, games, replays and TV channels |
-| `,` | Open or close Settings: player, cache, terminal video, backup source, ad breaks, add-on, PPV resolver |
+| `,` | Open or close Settings: player, cache, terminal video, backup source, phone page, ad mute, ad breaks, add-on, PPV resolver |
 | `↑` `↓` (or `j` `k`) | Move |
 | `Enter`, `→` or `l` | Open or play |
 | `Esc`, `←`, `h` or `Backspace` | Back up one level; repeated, it reaches Home |
@@ -193,11 +193,11 @@ The last 20 manual `t` checks are stored per provider, server, or channel; backg
 
 ### Ad mute
 
-To enable ad mute for one run, start with `./sports-cli --ad-mute`. Normal launches leave it off. It currently works only in mpv for complete replay HLS playlists with explicit `EXT-X-CUE-OUT` / `EXT-X-CUE-IN` ad markers. The app mutes at marked breaks and restores sound afterward if it was responsible for muting. It does not download a model, send frames to a service, or run AI.
+Choose **Ad mute** in Settings (`,`); the choice is saved for next time. To enable it for one run instead, start with `./sports-cli --ad-mute`, which wins over the saved choice. A fresh install leaves it off. It currently works only in mpv for complete replay HLS playlists with explicit `EXT-X-CUE-OUT` / `EXT-X-CUE-IN` ad markers. The app mutes at marked breaks and restores sound afterward if it was responsible for muting. It does not download a model, send frames to a service, or run AI.
 
 Most live streams tested do not include these markers, and this setting does not yet detect their commercials. A replay without markers, IINA, and Celluloid also play without automatic muting. Manual mute controls remain available in the player.
 
-For an **experimental local AI detector for NBA broadcasts**, install it separately, then opt in for each run:
+For an **experimental local AI detector for NBA broadcasts**, install it separately, then opt in from Settings (`,`), or for one run with a flag:
 
 ```sh
 sports --setup-ads       # one-time optional setup

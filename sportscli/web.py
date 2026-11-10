@@ -206,6 +206,23 @@ class Web:
 
 
 def serve(config, host='0.0.0.0', port=PORT):
+    try:
+        server, web, links = start(config, host, port)
+    except OSError as exc:
+        print(f'Cannot listen on port {port}: {exc}. Try --web-port with another number.')
+        return 2
+    print('Sports CLI web is running. Open one of these on your phone:\n')
+    for link in links: print(f'  {link}')
+    print('\nThe link is the password; share it only with people you trust. Press Ctrl+C to stop.')
+    try: server.serve_forever()
+    except KeyboardInterrupt: pass
+    finally:
+        server.server_close(); web.close()
+    return 0
+
+
+def start(config, host='0.0.0.0', port=PORT):
+    """The phone page's server, bound but not yet serving, with its Web and its links. Raises OSError."""
     token = config.get('web_token')
     if not token:
         token = config['web_token'] = secrets.token_urlsafe(12)
@@ -249,21 +266,12 @@ def serve(config, host='0.0.0.0', port=PORT):
                 try: self.reply(502, json.dumps({'error': str(exc) or type(exc).__name__}).encode(), 'application/json')
                 except (BrokenPipeError, ConnectionResetError): pass
 
-    try:
-        server = relay._Server((host, port), Handler)
-    except OSError as exc:
-        print(f'Cannot listen on port {port}: {exc}. Try --web-port with another number.')
-        return 2
+    try: server = relay._Server((host, port), Handler)
+    except OSError:
+        web.close(); raise
     server.daemon_threads = True
-    print('Sports CLI web is running. Open one of these on your phone:\n')
-    for address in addresses():
-        print(f'  http://{address}:{port}/{token}/')
-    print('\nThe link is the password; share it only with people you trust. Press Ctrl+C to stop.')
-    try: server.serve_forever()
-    except KeyboardInterrupt: pass
-    finally:
-        server.server_close(); web.close()
-    return 0
+    port = server.server_address[1]
+    return server, web, [f'http://{address}:{port}/{token}/' for address in addresses()]
 
 
 def addresses():

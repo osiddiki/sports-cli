@@ -2,6 +2,8 @@ import hashlib
 import http.server
 import io
 import os
+import pathlib
+import urllib.request
 import subprocess
 import sys
 import tempfile
@@ -116,6 +118,7 @@ class SettingsAdMuteTests(unittest.TestCase):
         config = {'ad_mute': True, 'ai_ad_mute': True, 'ai_ad_observe': True}
         with tempfile.TemporaryDirectory() as root, \
              patch.dict(os.environ, {'XDG_DATA_HOME': root}), \
+             patch.object(nba, 'CONFIG', pathlib.Path(root) / 'config.json'), \
              patch.object(ai_ad_mute, 'install', fake_install), \
              patch.object(ai_ad_mute.urllib.request, 'urlopen', refuse_download), \
              patch.object(nba.threading, 'Thread', ImmediateThread), \
@@ -168,7 +171,7 @@ class SettingsAdMuteTests(unittest.TestCase):
                     self.assertIn('not installed', app.message)
                     self.assertFalse(app.player_ready(nba.Feed('Directory', 'Home', 'home', 'https://example.test/a', 'direct')))
                     self.assertIn('Choose Ad detector in Settings', app.message)
-            self.assertEqual(config, {'ad_mute': True, 'ai_ad_mute': True, 'ai_ad_observe': True})
+            self.assertEqual(config, {'ad_mute': True, 'ai_ad_mute': True, 'ai_ad_observe': True, 'ad_choice': 'off'})
             self.assertEqual(calls, [])
 
             fresh = nba.App(Screen(), config)
@@ -196,6 +199,41 @@ class SettingsAdMuteTests(unittest.TestCase):
             self.assertEqual(row(again, 'Ad mute'), 'off')
             self.assertEqual(row(again, 'Ad detector'), 'installed')
             self.assertEqual(calls, ['install', 'install'])
+
+    def test_saved_ad_mute_choice_returns_unless_a_run_flag_overrides_it(self):
+        with tempfile.TemporaryDirectory() as root, patch.object(nba, 'CONFIG', pathlib.Path(root) / 'config.json'), \
+             patch.object(nba, 'get_games', return_value=[]):
+            config = {}
+            first = nba.App(Screen(), config); self.addCleanup(first.close)
+            first.cycle_ad_mute()
+            self.assertEqual(config['ad_choice'], 'marked')
+            self.assertEqual(nba.App(Screen(), dict(config)).ad_mute_choice(), 'marked')
+            flagged = nba.App(Screen(), dict(config), ai_ad_observe_enabled=True)
+            self.assertEqual(flagged.ad_mute_choice(), 'preview')
+            self.assertEqual(nba.App(Screen(), {'ad_choice': 'bogus'}).ad_mute_choice(), 'off')
+
+    def test_phone_row_starts_serves_and_stops_the_phone_page(self):
+        with tempfile.TemporaryDirectory() as root, patch.object(nba, 'CONFIG', pathlib.Path(root) / 'config.json'), \
+             patch.object(nba, 'get_games', return_value=[]):
+            config = {'web_token': 'testtoken'}
+            app = nba.App(Screen(), config); self.addCleanup(app.close)
+            app.toggle_phone(port=0)
+            server = app.phone[0]
+            port = server.server_address[1]
+            self.assertNotEqual(app.phone[2][0], 'off')
+            self.assertIn(f':{port}/testtoken/', app.phone[2][0])
+            with urllib.request.urlopen(f'http://127.0.0.1:{port}/testtoken/', timeout=5) as reply:
+                self.assertEqual(reply.status, 200)
+            app.toggle_phone()
+            self.assertIsNone(app.phone)
+            with self.assertRaises(OSError):
+                urllib.request.urlopen(f'http://127.0.0.1:{port}/testtoken/', timeout=2)
+            app.toggle_phone(port=0)
+            port = app.phone[0].server_address[1]
+            app.close()
+            self.assertIsNone(app.phone)
+            with self.assertRaises(OSError):
+                urllib.request.urlopen(f'http://127.0.0.1:{port}/testtoken/', timeout=2)
 
     def test_settings_install_keeps_subprocess_output_off_the_terminal(self):
         contents = b'local test model'

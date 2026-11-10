@@ -52,6 +52,7 @@ LEAGUES = {
 }
 PPV = 'https://api.ppv.st/api/streams'
 MIN_VISIBLE_SOURCES = 5  # failed checks never shrink a source list below this
+SHORT_LIST = 3  # streams listed before "More streams"; the rest are one Enter away
 REDZONE = 'redzone'  # the id of the NFL RedZone row on an NFL Sunday schedule
 SF = 'https://streamfree.top/streams'
 SF_ROOT = 'https://streamfree.top'
@@ -79,7 +80,8 @@ SETTING_NOTES = {
     'Show video in this window': 'Draws the video as text in this window instead of a video window.',
     'Backup stream for live games': 'Keeps a second source ready and switches to it if the first one stalls.',
     'When an ad is detected': 'Mute only, show a break screen, or show another game in a corner.',
-    'Ad mute': 'Mutes the sound during ads. Mute ads needs the ad detector.',
+    'Watch on your phone': 'Serves a page your phone opens to watch. The link is its password.',
+    'Ad mute': 'Mutes the sound during ads. Mute ads needs the ad detector. Saved for next time.',
     'Ad detector': 'Spots ads on this computer. Installing it downloads about 150 MB.',
     'More sources (add-on)': 'The address of an optional add-on that lists more streams.',
     'Pay-per-view helper location': 'Where the optional pay-per-view helper lives. Leave it on standard.',
@@ -92,6 +94,14 @@ CHANNEL_ACTIONS = 'Enter see streams   f find   r reload   Esc back'
 SITE_ACTIONS = 'Enter see streams   Esc back'
 
 HELP_LINES = [
+    '  ↑ ↓      move            Enter   open or play',
+    '  Esc      go back         q       quit',
+    '  /        search          ,       settings',
+    '',
+    '  Tip: press Enter on a live game, then Enter again to watch.',
+    '',
+    'ALL KEYS',
+    '',
     'GETTING AROUND',
     '  Up and Down move, Enter opens or plays, Esc goes back, q quits.',
     '  / searches for a team, player or channel. The comma key opens Settings.',
@@ -126,7 +136,8 @@ HELP_LINES = [
     '  i shows the stream link, u plays a link you paste, g ranks by past checks.',
     '',
     'SETTINGS',
-    '  Choose the video player, the backup source, ad muting and add-ons.',
+    '  Choose the video player, the backup source, ad muting, watching on your',
+    '  phone and add-ons.',
     '  Live lists hide finished games and sources that stopped working.',
 ]
 
@@ -1018,6 +1029,7 @@ class App:
         self.auto_jobs = queue.Queue(maxsize=AUTO_CHECKS_PER_SCREEN)
         self.auto_workers = []
         self.auto_generation = None; self.auto_started = 0; self.auto_heights = {}; self.auto_speeds = {}; self.show_failed = False
+        self.streams_expanded = False
         self.check_cache = checks.CheckCache(); self.auto_checked_at = {}; self.recheck_generation = None
         self.manual_checks = set()
         self.manual_queue = queue.Queue()
@@ -1046,10 +1058,12 @@ class App:
         self.ad_breaks = config.get('ad_breaks') if config.get('ad_breaks') in breaks.MODES else 'mute'
         self.stream_notes = {}
         self.record_dir = None
+        # A run flag wins; otherwise the choice saved in Settings. Off unless someone chose it.
         if ai_ad_mute_enabled: self.ad_choice = 'mute'
         elif ai_ad_observe_enabled: self.ad_choice = 'preview'
         elif ad_mute_enabled: self.ad_choice = 'marked'
-        else: self.ad_choice = 'off'
+        else: self.ad_choice = config.get('ad_choice') if config.get('ad_choice') in dict(AD_MUTE_CHOICES) else 'off'
+        self.phone = None  # (server, web, links) while the phone page runs from Settings
         self.ad_install = None
         self.player = config.get('player', 'mpv') if config.get('player', 'mpv') in ('mpv', 'iina', 'celluloid') else 'mpv'
         self.rank_by_checks = False
@@ -1073,6 +1087,16 @@ class App:
         return raw, chr(raw) if 32 <= raw <= 126 else None
 
     def visible_feeds(self):
+        """The streams drawn and selectable: the best SHORT_LIST until the person asks for more."""
+        ranked = self.ranked_feeds()
+        return ranked if self.streams_expanded or len(ranked) <= SHORT_LIST + 1 else ranked[:SHORT_LIST]
+
+    def more_streams(self):
+        """How many ranked streams wait behind the "More streams" row, 0 when it is not shown."""
+        return len(self.ranked_feeds()) - len(self.visible_feeds())
+
+    def ranked_feeds(self):
+        """Every stream the filters allow, best first; checks, counts and backups use all of them."""
         side = self.filter
         query = self.feed_search.casefold().strip()
         matching = [f for f in self.feeds if id(f) not in self.hidden_feeds and (self.filter == 'all' or f.side == side)
@@ -1105,7 +1129,7 @@ class App:
 
     def hidden_failed(self):
         """Sources hidden only because their check failed; v shows them."""
-        shown = {id(f) for f in self.visible_feeds()}
+        shown = {id(f) for f in self.ranked_feeds()}
         return sum(1 for f in self.feeds if id(f) not in self.hidden_feeds and id(f) not in shown and self.failed_check(f))
 
     def feed_status(self, feed):
@@ -1472,7 +1496,8 @@ class App:
             bottom -= 1
             # Rows take one line, or two when there is something to say about the source.
             heights = [2 if view.detail or len(view.name) > name_width else 1 for view in views]
-            start, used = self.fi, heights[self.fi] if fs else 0
+            focus = min(self.fi, len(fs) - 1)
+            start, used = max(0, focus), heights[focus] if fs else 0
             while start > 0 and used + heights[start-1] <= bottom-6: start -= 1; used += heights[start]
             y = 6
             for index in range(start, len(fs)):
@@ -1490,6 +1515,11 @@ class App:
                 y += heights[index]
             else:
                 index = len(fs)
+            more = self.more_streams()
+            if more and index == len(fs) and y < bottom:
+                selected = self.fi == len(fs)
+                label = f'More streams ({more})'
+                self.put(y, 2, f'> {label:<{w-6}}' if selected else f'  {label}', curses.A_REVERSE if selected else curses.A_BOLD)
             self.more_below(bottom, len(fs) - index)
             failed = (sum(1 for f in self.feeds if id(f) not in self.hidden_feeds and self.failed_check(f))
                       if self.show_failed else self.hidden_failed())
@@ -2048,7 +2078,7 @@ class App:
         self.feeds = [feed for name in self.feed_order for feed in self.feed_sections.get(name, [])]
         self.errors = list(self.search_preview_errors)
         self.feed_pending = self.search_preview_pending
-        self.fi = 0; self.feed_selection_touched = False
+        self.fi = 0; self.feed_selection_touched = False; self.streams_expanded = False
         self.hidden_feeds.clear(); self.auto_checks.clear(); self.manual_status.clear(); self.auto_heights.clear(); self.auto_speeds.clear()
         self.auto_checked_at.clear()
         self.search_preview_adopt_generation = generation
@@ -2168,7 +2198,7 @@ class App:
             tasks = [('Replay servers', replay_servers)]
         else:
             tasks = feed_tasks(self.games[self.gi], dict(self.config))
-        self.feeds = []; self.errors = []; self.fi = 0
+        self.feeds = []; self.errors = []; self.fi = 0; self.streams_expanded = False
         self.hidden_feeds.clear()
         self.auto_checks.clear(); self.auto_heights.clear(); self.auto_speeds.clear(); self.auto_checked_at.clear()
         self.manual_status.clear()
@@ -2296,9 +2326,11 @@ class App:
             self.fi = (selected_index if selected_index is not None else
                        min(old_index, max(0, len(visible)-1)) if chosen else 0)
             statuses = [self.auto_checks.get(id(feed)) for feed in self.feeds if id(feed) not in self.hidden_feeds]
-            if self.mode == 'feeds' and 'checking' not in statuses and not self.feed_pending:
+            # Counts replace only the list's own loading line, never a message the person has had since.
+            if (self.mode == 'feeds' and 'checking' not in statuses and not self.feed_pending
+                    and re.fullmatch(r'\d+ streams found\.|Looking for streams…', self.message or '')):
                 # Count what the list shows, so the status line, the rows and the v hint agree.
-                shown = self.visible_feeds()
+                shown = self.ranked_feeds()
                 working = sum(1 for feed in shown if self.auto_checks.get(id(feed)) == 'OK')
                 broken = sum(1 for feed in shown if self.failed_check(feed))
                 unchecked = len(shown) - working - broken
@@ -2797,6 +2829,7 @@ class App:
     def close(self):
         self.closed.set()
         self.check_cache.save()
+        if self.phone: self.toggle_phone()
         self.tonight_stop.set()
         self.stop_schedule_workers()
         if self.player_worker_started:
@@ -2950,7 +2983,7 @@ class App:
                  'replays': lambda: len(self.replays), 'channels': lambda: len(self.visible_channels()),
                  'settings': lambda: len(self.settings_rows()),
                  'replay_sources': lambda: len(self.current_bundle.sources) if self.current_bundle else 0,
-                 'feeds': lambda: len(self.visible_feeds())}
+                 'feeds': lambda: len(self.visible_feeds()) + (1 if self.more_streams() else 0)}
         size = sizes[self.mode]() if self.mode in sizes else 0
         field = {'home': 'home_index', 'leagues': 'league_index', 'games': 'gi', 'replays': 'ri', 'channels': 'ci',
                  'settings': 'settings_index', 'replay_sources': 'bundle_index', 'feeds': 'fi'}.get(self.mode)
@@ -3007,6 +3040,9 @@ class App:
             self.open_feeds('replay', 'replay_sources')
         elif self.mode == 'settings':
             self.settings_rows()[self.settings_index][2]()
+        elif self.mode == 'feeds' and self.more_streams() and self.fi == len(self.visible_feeds()):
+            self.streams_expanded = True; self.feed_selection_touched = True
+            self.message = f'All {len(self.visible_feeds())} streams, best first.'
         elif self.mode == 'feeds' and self.visible_feeds():
             self.feed_selection_touched = True; self.begin_feed_action(self.visible_feeds()[self.fi], 'play')
 
@@ -3064,7 +3100,7 @@ class App:
             self.filter = filters[(filters.index(self.filter)+1) % len(filters)]; self.fi = 0; self.feed_selection_touched = True
             self.message = f'Broadcast side: {self.filter}.'
         elif key == ord('v') and (self.show_failed or any(self.failed_check(f) for f in self.feeds)):
-            self.show_failed = not self.show_failed; self.fi = 0; self.feed_selection_touched = True
+            self.show_failed = not self.show_failed; self.fi = 0; self.feed_selection_touched = True; self.streams_expanded = True
             self.message = 'Showing sources that failed their checks.' if self.show_failed else 'Hiding sources that failed their checks.'
         elif key == ord('o'):
             names = ['all'] + list(dict.fromkeys(f.source for f in self.feeds if id(f) not in self.hidden_feeds))
@@ -3089,6 +3125,7 @@ class App:
             ('Buffer before playing', f'{self.cache} seconds', self.cycle_cache),
             ('Show video in this window', 'on' if self.terminal_video else 'off', self.toggle_terminal_video),
             ('Backup stream for live games', 'on' if self.dual_stream else 'off', self.toggle_backup),
+            ('Watch on your phone', self.phone[2][0] if self.phone else 'off', self.toggle_phone),
             ('Ad mute', dict(AD_MUTE_CHOICES)[self.ad_mute_choice()], self.cycle_ad_mute),
             ('When an ad is detected', breaks.LABELS[self.ad_breaks] + ('' if self.ai_ad_mute else ' (needs Ad mute)'), self.cycle_ad_breaks),
             ('Ad detector', self.ad_detector_value(), self.install_ad_detector),
@@ -3143,10 +3180,23 @@ class App:
     def ad_mute_choice(self):
         return getattr(self, 'ad_choice', 'off')
 
+    def toggle_phone(self, port=None):
+        """Start or stop the phone page (what sports --web serves) next to this window."""
+        if self.phone:
+            server, web_app, _ = self.phone; self.phone = None
+            server.shutdown(); server.server_close(); web_app.close()
+            self.message = 'Phone page stopped.'; return
+        from . import web
+        try: self.phone = web.start(self.config, port=web.PORT if port is None else port)
+        except OSError as exc:
+            self.message = f'The phone page could not start: {exc.strerror or exc}. Is sports --web already running?'; return
+        threading.Thread(target=self.phone[0].serve_forever, name='phone-page', daemon=True).start()
+        self.message = f'Open {self.phone[2][0]} on your phone. Same Wi-Fi, or Tailscale away from home.'
+
     def cycle_ad_mute(self):
         keys = [key for key, _ in AD_MUTE_CHOICES]
         choice = keys[(keys.index(self.ad_mute_choice()) + 1) % len(keys)]
-        self.ad_choice = choice
+        self.ad_choice = choice; self.config['ad_choice'] = choice; save_config(self.config)
         label = dict(AD_MUTE_CHOICES)[choice]
         self.message = 'Ad mute is off.' if choice == 'off' else f'Ad mute: {label}.'
         if choice == 'mute': self.message = 'Ad mute: mute ads. This can mute game coverage.'
