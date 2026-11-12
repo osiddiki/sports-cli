@@ -1087,9 +1087,12 @@ class App:
         return raw, chr(raw) if 32 <= raw <= 126 else None
 
     def visible_feeds(self):
-        """The streams drawn and selectable: the best SHORT_LIST until the person asks for more."""
+        """The streams drawn and selectable: every working one, at least SHORT_LIST, until the person asks for more."""
         ranked = self.ranked_feeds()
-        return ranked if self.streams_expanded or len(ranked) <= SHORT_LIST + 1 else ranked[:SHORT_LIST]
+        if self.streams_expanded: return ranked
+        # Every stream that played when checked stays listed; only untested and failed ones wait behind the row.
+        shown = max(SHORT_LIST, sum(1 for feed in ranked if self.manual_status.get(id(feed), self.auto_checks.get(id(feed))) == 'OK'))
+        return ranked if len(ranked) <= shown + 1 else ranked[:shown]
 
     def more_streams(self):
         """How many ranked streams wait behind the "More streams" row, 0 when it is not shown."""
@@ -1117,13 +1120,13 @@ class App:
                 return (reachability, *grading.score(history.get(grading.source_key(feed), {})))
             feeds.sort(key=rank, reverse=True)
         else:
-            # Working sources first, smooth before laggy, then by resolution: measured, else what the
-            # label says, since a check that reads no height must not sink a 1080p source below 540p.
+            # Working sources first, then the sharpest picture, smooth before laggy at the same height. The height is
+            # measured, else what the label says. Speed comes from one short sample, too noisy to sink 1080p below 540p.
             def order(feed):
                 status = self.manual_status.get(id(feed), self.auto_checks.get(id(feed)))
                 group = 0 if status == 'OK' else 2 if self.failed_check(feed) else 1
                 height = self.auto_heights.get(id(feed)) or listed_height(feed)
-                return (group, smoothness(self.auto_speeds.get(id(feed))), -height)
+                return (group, -height, smoothness(self.auto_speeds.get(id(feed))))
             feeds.sort(key=order)
         return feeds
 
@@ -1486,7 +1489,7 @@ class App:
             if self.rank_by_checks: context.append('ranked by past checks')
             if not self.dual_stream and self.feed_context in ('live', 'tv'): context.append('backup off')
             self.put(4, 1, '  ·  '.join(context), curses.A_DIM)
-            self.fi = min(self.fi, max(0, len(fs)-1))
+            self.fi = min(self.fi, len(fs) if self.more_streams() else max(0, len(fs)-1))
             name_width = max(14, min(50, w-31))
             columns = f'{"STREAM":<{name_width}}  {"PICTURE":8} STATUS'
             self.put(5, 4, columns, curses.A_DIM)

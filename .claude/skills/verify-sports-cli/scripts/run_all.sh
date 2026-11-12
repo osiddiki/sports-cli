@@ -39,7 +39,7 @@ check tv-sources --app-args="--tv" 'expect:ESPN +\d+' key:Down key:Enter 'expect
 check settings "$H" key:, 'expect:Backup stream for live games' shot:settings key:Down key:Down key:Down key:Enter 'expect:Backup source off' key:Down key:Down key:Down key:Enter 'expect:When an ad is detected: break screen' key:Up key:Up key:Up key:Up key:Up key:Enter 'expect:Buffer before playing: 30 seconds' shot:changed key:Esc "$H" key:4 'expect:ESPN +\d+' key:Enter 'expect:backup off' 'expect:buffer 30s' shot:sources
 check play-tv --mpv-seconds 8 --app-args="--tv" 'expect:ESPN +\d+' key:Enter 'expect:^ Streams' 'expect:Stream 1' shot:sources key:Enter 'expect:Returned from mpv' shot:returned
 check nav-keys --app-args="--league nba" 'expect:NBA  ·' key:s 'expect:choose a sport' key:Esc 'expect:NBA  ·' key:h 'expect:By sport: choose a sport' key:l 'expect:NBA  ·' key:, 'expect:Backup stream' key:, 'expect:NBA  ·' key:z 'expect:z does nothing here' shot:keys
-check rep-list "$H" key:3 'expect:Replays: choose a sport' key:Enter 'expect:replays found' shot:replays key:Enter 'expect:Replay sources from' 'expect:^ Streams' shot:sources key:Esc 'expect:^ Replays$' shot:back
+check rep-list "$H" key:3 'expect:Replays: choose a sport' key:Enter 'expect:replays found' shot:replays key:Enter 'expect:Replay sources from|^ \d+ sources$' 'expect:^ Streams' shot:sources key:Esc 'expect:^ Replays$' shot:back
 shell_check list-games python3 sports-cli --list --league nba
 shell_check list-tv python3 sports-cli --list --tv
 

@@ -16,7 +16,7 @@ Recent full-game replays from each league's archives, and the sources listed for
 Preconditions: baseline; network without a proxy.
 
 - **List.** `$D 'expect:LIVE|LATER|No games' key:3 'expect:Replays: choose a sport' key:Enter 'expect:replays found' shot:replays`.
-- **Servers.** Continue with `key:Enter 'expect:Replay sources from' 'expect:^ Streams' shot:sources`.
+- **Servers.** Continue with `key:Enter 'expect:Replay sources from|^ \d+ sources$' 'expect:^ Streams' shot:sources`.
 - **Back.** `key:Esc 'expect:Replays' key:Esc 'expect:choose a sport'`.
 
 ## Gotchas

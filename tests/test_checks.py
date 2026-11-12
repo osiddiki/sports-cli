@@ -136,13 +136,13 @@ class ReopenSourcesTests(unittest.TestCase):
 
 
 class ShortListTests(unittest.TestCase):
-    """A long list shows the best three streams and a row that brings back the rest."""
+    """A long list shows every working stream, at least three, and a row that brings back the rest."""
     def test_three_streams_then_a_more_row_that_lists_the_rest_in_place(self):
         app = nba.App(FakeScreen(), {}); self.addCleanup(app.close)
         app.mode = 'feeds'; app.feed_context = 'tv'
         app.current_channel = type('Channel', (), {'name': 'Example TV', 'sources': []})()
         app.feeds = [nba.Feed('Site', f'stream {n}', url=f'https://example.invalid/{n}.m3u8', kind='direct') for n in range(7)]
-        for feed in app.feeds: app.auto_checks[id(feed)] = 'OK'
+        for feed in app.feeds[:2]: app.auto_checks[id(feed)] = 'OK'
         app.render()
         screen = '\n'.join(app.scr.lines)
         self.assertIn('Stream 3', screen); self.assertNotIn('Stream 4', screen)
@@ -153,6 +153,24 @@ class ShortListTests(unittest.TestCase):
         self.assertEqual(app.fi, 3)
         app.render()
         self.assertIn('Stream 7', '\n'.join(app.scr.lines))
+
+    def test_the_more_row_keeps_the_cursor_across_redraws(self):
+        app = nba.App(FakeScreen(), {}); self.addCleanup(app.close)
+        app.mode = 'feeds'; app.feed_context = 'tv'
+        app.current_channel = type('Channel', (), {'name': 'Example TV', 'sources': []})()
+        app.feeds = [nba.Feed('Site', f'stream {n}', url=f'https://example.invalid/{n}.m3u8', kind='direct') for n in range(7)]
+        for _ in range(3): app.handle_key(nba.curses.KEY_DOWN, None); app.render()
+        self.assertEqual(app.fi, 3)
+        self.assertIn('> More streams (4)', '\n'.join(app.scr.lines))
+
+    def test_working_streams_are_never_hidden_behind_the_row(self):
+        app = nba.App(FakeScreen(), {}); self.addCleanup(app.close)
+        app.mode = 'feeds'; app.feed_context = 'tv'
+        app.feeds = [nba.Feed('Site', f'stream {n}', url=f'https://example.invalid/{n}.m3u8', kind='direct') for n in range(9)]
+        for feed in app.feeds[:6]: app.auto_checks[id(feed)] = 'OK'
+        self.assertEqual((len(app.visible_feeds()), app.more_streams()), (6, 3))
+        app.action_current = (1, app.feed_generation, app.feeds[5], 'play')
+        self.assertIn(app.feeds[5], app.visible_feeds(), 'a stream being opened stays listed')
 
     def test_four_streams_are_all_listed(self):
         app = nba.App(FakeScreen(), {}); self.addCleanup(app.close)

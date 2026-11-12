@@ -423,7 +423,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertNotIn(feeds[0], app.ranked_feeds())
         self.assertEqual(len(app.ranked_feeds()), nba.MIN_VISIBLE_SOURCES)
 
-    def test_smooth_sources_rank_above_faster_resolutions_that_may_lag(self):
+    def test_sharper_sources_rank_first_and_smooth_breaks_ties(self):
         app = nba.App(None, {})
         self.addCleanup(app.close)
         app.feed_generation = 1
@@ -434,9 +434,9 @@ class DiscoveryTests(unittest.TestCase):
         for feed, height, speed in ((laggy, 1080, 0.8), (smooth, 720, 3.5), (unmeasured, 1080, None)):
             app.auto_queue.put((1, feed, 'OK', height, speed))
         app.poll_auto_checks()
-        self.assertEqual(app.visible_feeds(), [smooth, unmeasured, laggy])
+        self.assertEqual(app.visible_feeds(), [unmeasured, laggy, smooth])
         self.assertEqual([nba.describe_feed(f, {'speed': app.auto_speeds.get(id(f))}, 'OK').check for f in app.visible_feeds()],
-                         ['Smooth', 'OK', 'May lag'])
+                         ['OK', 'May lag', 'Smooth'])
 
     def test_checked_sources_order_by_measured_resolution(self):
         app = nba.App(None, {})
