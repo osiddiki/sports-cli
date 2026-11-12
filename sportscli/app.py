@@ -719,6 +719,8 @@ def feed_tasks(game, config):
     if game.league == 'nba':
         tasks.extend([('NBA Monster', lambda: monster_feeds(game)),
                       ('NBA Bite', lambda: directory_feeds(game))])
+    if game.league in providers.ROXIE_PAGES:
+        tasks.append(('RoxieStreams', lambda: roxie_feeds(game)))
     if config.get('addon'):
         tasks.append(('Add-on', lambda: addon_feeds(config['addon'], game)))
     return tasks
@@ -766,6 +768,13 @@ def monster_feeds(game):
     return [Feed('NBA Monster', item['name'], url=item['url'], kind='candidate',
                  note='directory listing; resolved when selected', metadata={'referer':providers.MONSTER+'/'})
             for item in providers.monster_entries(game)]
+
+
+def roxie_feeds(game):
+    headers = {'Referer':providers.ROXIE+'/', 'Origin':providers.ROXIE}
+    return [Feed('RoxieStreams', item['name'], url=item['url'], kind='direct', headers=dict(headers),
+                 note='plain HLS from the event page; availability not yet checked')
+            for item in providers.roxie_entries(game, title_matches)]
 
 
 def ntv_feeds(game):

@@ -107,7 +107,7 @@ class DiscoveryTests(unittest.TestCase):
                 return {'streams':[{'streams':[{'name':'Lakers vs Clippers', 'starts_at':int(self.start.timestamp()),
                     'iframe':'https://example.com/embed/game', 'source_tag':'Home'}]}]}
             raise OSError('unavailable')
-        with patch.object(nba, 'request', side_effect=fetch), patch.object(nba, 'monster_feeds', return_value=[]), patch.object(nba, 'directory_feeds', return_value=[]), patch.object(nba, 'ntv_feeds', return_value=[]):
+        with patch.object(nba, 'request', side_effect=fetch), patch.object(nba, 'monster_feeds', return_value=[]), patch.object(nba, 'directory_feeds', return_value=[]), patch.object(nba, 'ntv_feeds', return_value=[]), patch.object(nba, 'roxie_feeds', return_value=[]):
             feeds, errors = nba.fetch_feeds(self.game, {})
         self.assertEqual(len(feeds), 1)
         self.assertTrue(errors[0].startswith('StreamFree:'))
@@ -119,7 +119,8 @@ class DiscoveryTests(unittest.TestCase):
             return {'streams': {}}
         monster = [nba.Feed('NBA Monster', 'Server 1', url='https://monster.example/1.m3u8', kind='direct')]
         with patch.object(nba, 'request', side_effect=fetch), patch.object(nba, 'monster_feeds', return_value=monster), \
-                patch.object(nba, 'directory_feeds', return_value=[]), patch.object(nba, 'ntv_feeds', return_value=[]):
+                patch.object(nba, 'directory_feeds', return_value=[]), patch.object(nba, 'ntv_feeds', return_value=[]), \
+                patch.object(nba, 'roxie_feeds', return_value=[]):
             feeds, errors = nba.fetch_feeds(self.game, {})
         self.assertEqual([feed.source for feed in feeds], ['NBA Monster'])
         self.assertTrue(any(error.startswith('PPV:') for error in errors))
@@ -189,6 +190,36 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual([r['name'] for r in results], ['OK'])
         self.game.broadcasts=['Spectrum Sports Net (Away)']
         self.assertEqual(nba.channel_side(results[0]['channel'], self.game), 'away')
+
+    def test_roxiestreams_matches_the_event_and_builds_playlist_urls(self):
+        listing = ('<table><tr><td><a href="/nba-streams-5">Denver Nuggets vs Memphis Grizzlies</a></td></tr>'
+                   '<tr><td><a href="/nba-streams-6">\n  Los Angeles Lakers vs LA Clippers\n </a></td></tr></table>')
+        event = ("<script>var subdomain = 'admin2'\nfetch('domainsz77.txt').then(r => r.text())</script>"
+                 "<button class=\"streambutton\" onclick=\"showPlayer('clappr', getRandomStream('nba6.m3u8', 'edge'))\">Stream 1</button>"
+                 "<button class=\"streambutton\" onclick=\"showPlayer('clappr', getRandomStream('nba6b.m3u8'))\">Stream 2</button>")
+        pages = {providers.ROXIE+'/nba':listing, providers.ROXIE+'/nba-streams-6':event,
+                 providers.ROXIE+'/domainsz77.txt':'one.example\nbad host\ntwo.example\nthree.example\n'}
+        with patch.object(providers, 'fetch_html', side_effect=lambda url, *a, **kw:(pages[url], url)):
+            entries = providers.roxie_entries(self.game, nba.title_matches)
+        self.assertEqual([(e['name'], e['url']) for e in entries], [
+            ('Stream 1', 'https://edge.one.example/nba6.m3u8'), ('Stream 1 | mirror 2', 'https://edge.two.example/nba6.m3u8'),
+            ('Stream 2', 'https://admin2.one.example/nba6b.m3u8'), ('Stream 2 | mirror 2', 'https://admin2.two.example/nba6b.m3u8')])
+
+    def test_roxiestreams_skips_other_games_and_unlisted_leagues(self):
+        listing = '<a href="/nba-streams-5">Denver Nuggets vs Memphis Grizzlies</a>'
+        with patch.object(providers, 'fetch_html', return_value=(listing, 'x')) as fetch:
+            self.assertEqual(providers.roxie_entries(self.game, nba.title_matches), [])
+            self.assertEqual(fetch.call_count, 1)
+            self.game.league = 'wnba'
+            self.assertEqual(providers.roxie_entries(self.game, nba.title_matches), [])
+            self.assertEqual(fetch.call_count, 1)
+
+    def test_roxiestreams_feeds_carry_the_headers_the_host_checks(self):
+        entries = [{'name':'Stream 1', 'url':'https://admin2.one.example/nba6.m3u8'}]
+        with patch.object(providers, 'roxie_entries', return_value=entries):
+            feed, = nba.roxie_feeds(self.game)
+        self.assertEqual((feed.source, feed.kind, feed.url), ('RoxieStreams', 'direct', entries[0]['url']))
+        self.assertEqual(feed.headers, {'Referer':providers.ROXIE+'/', 'Origin':providers.ROXIE})
 
     def test_candidate_follows_iframes_and_finds_tokenized_player(self):
         pages = {
@@ -516,7 +547,7 @@ class DiscoveryTests(unittest.TestCase):
     def test_non_nba_categories_use_correct_directories_and_embeds(self):
         game = nba.Game('2','Charlotte FC vs CF Montréal',self.start,'Charlotte FC','CF Montréal',
                         'Charlotte FC','CF Montréal',league='mls',category='soccer')
-        self.assertEqual([name for name, _ in nba.feed_tasks(game,{})], ['StreamFree','PPV','NTV'])
+        self.assertEqual([name for name, _ in nba.feed_tasks(game,{})], ['StreamFree','PPV','NTV','RoxieStreams'])
         key = 'charlotte-vs-montreal'
         listing = {'streams':{'soccer':[{'name':'Charlotte vs Montreal','stream_key':key,
                                         'match_timestamp':int(self.start.timestamp())}]}}

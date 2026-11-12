@@ -12,6 +12,9 @@ UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131.0 Safari/537
 NBABITE = 'https://nbabite.st'
 MONSTER = 'https://nbamonster.com'
 SF_ROOT = 'https://streamfree.top'
+ROXIE = 'https://roxiestreams.su'
+ROXIE_PAGES = {'nba':'nba', 'nhl':'nhl', 'mlb':'mlb', 'nfl':'nfl', 'ncaaf':'nfl', 'mls':'soccer', 'epl':'soccer',
+               'laliga':'soccer', 'bundesliga':'soccer', 'seriea':'soccer', 'ligue1':'soccer', 'ligamx':'soccer', 'ucl':'soccer'}
 
 
 def public_url(url, any_port=False):
@@ -130,6 +133,33 @@ def nbabite_entries(game, title_matches):
         path_words=urllib.parse.unquote(urllib.parse.urlsplit(url).path).replace('-',' ')
         if re.search(r'\bvs\b',path_words,re.I) and not title_matches(path_words,game): continue
         entries.append({'name':provider,'quality':quality,'language':language,'channel':channel,'url':url})
+    return entries
+
+
+def roxie_entries(game, title_matches, *, max_domains=2):
+    """Plain HLS from RoxieStreams: its league page lists events, each event page names the
+    playlist (`getRandomStream('nba6.m3u8','admin2')`) and a text file lists the hosts serving it."""
+    section = ROXIE_PAGES.get(game.league)
+    if not section: return []
+    page, _ = fetch_html(f'{ROXIE}/{section}', timeout=8)
+    links = re.findall(r'<a\s+href="(/[a-z]+-streams-\d+)"[^>]*>\s*([^<]+?)\s*</a>', page)
+    path = next((href for href, title in links if title_matches(html.unescape(title), game)), None)
+    if not path: return []
+    event, _ = fetch_html(ROXIE+path, ROXIE+'/', timeout=8)
+    streams = re.findall(r'getRandomStream\(\s*\'([\w.-]+\.m3u8)\'(?:\s*,\s*\'(\w+)\')?\s*\)\)"[^>]*>\s*([^<]*?)\s*</button>', event)
+    if not streams: return []
+    default = re.search(r"var\s+subdomain\s*=\s*'(\w+)'", event)
+    names = re.search(r"fetch\('(domains[\w.-]*\.txt)'\)", event)
+    listing, _ = fetch_html(f'{ROXIE}/{names.group(1) if names else "domainsz77.txt"}', ROXIE+'/', limit=20_000, timeout=8)
+    hosts = [h for h in listing.split() if re.fullmatch(r'[a-z0-9-]+(?:\.[a-z0-9-]+)+', h)][:max_domains]
+    entries = []
+    for number, (playlist, sub, label) in enumerate(streams[:6], 1):
+        sub = sub or (default.group(1) if default else 'admin2')
+        for mirror, host in enumerate(hosts, 1):
+            url = f'https://{sub}.{host}/{playlist}'
+            if not public_url(url): continue
+            name = label or f'Stream {number}'
+            entries.append({'name':name if mirror == 1 else f'{name} | mirror {mirror}', 'url':url})
     return entries
 
 

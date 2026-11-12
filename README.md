@@ -162,6 +162,7 @@ A key that does nothing on the current screen says so on the status line. In sea
 | StreamFree | Multiple sports; sources marked not live are omitted and fresh playlist URLs are resolved on selection. |
 | PPV | Multiple sports and broadcast labels; uses the local PPV resolver. |
 | NTV | Multiple sports and event-specific servers; some channels require the app's local relay. |
+| RoxieStreams | Plain HLS playlists for NBA, NHL, MLB, NFL, college football and soccer, found from the site's event pages; the stream check measures the picture. |
 | NBA Bite, NBA Monster | Additional NBA directories; individual embedded players are resolved when selected. |
 | Sports add-on | Optional compatible Stremio manifest configured with `a`; results depend on the add-on. |
 
