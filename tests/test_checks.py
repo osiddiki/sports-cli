@@ -228,3 +228,19 @@ class PpvCheckTests(unittest.TestCase):
                 time.sleep(.02)
         self.assertEqual(app.auto_heights.get(id(ppv)), 1080)
         self.assertIs(app.visible_feeds()[0], ppv)
+
+    def test_ppv_lookups_reach_the_helper_one_at_a_time(self):
+        app = nba.App(None, {}); self.addCleanup(app.close)
+        active, peak, lock = [0], [0], threading.Lock()
+        def embed(url, data=None, timeout=None):
+            with lock: active[0] += 1; peak[0] = max(peak[0], active[0])
+            time.sleep(.05)
+            with lock: active[0] -= 1
+            return {'ok': True, 'proxiedUrl': 'http://127.0.0.1:38765/api/hls?u=x'}
+        feeds = [nba.Feed('PPV', f'HD {n}', url=f'https://example.invalid/embed/{n}', kind='ppv') for n in range(4)]
+        with patch.object(app, 'ensure_helper'), patch.object(nba, 'request', side_effect=embed), \
+             patch.object(nba, 'check_playlist'):
+            workers = [threading.Thread(target=app.resolve_feed, args=(feed,)) for feed in feeds]
+            for worker in workers: worker.start()
+            for worker in workers: worker.join(5)
+        self.assertEqual(peak[0], 1)

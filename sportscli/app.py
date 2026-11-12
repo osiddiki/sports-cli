@@ -1072,6 +1072,8 @@ class App:
         self.helper = None
         self.relay = None
         self.resource_lock = threading.Lock()
+        # The PPV helper swaps process-wide globals while it decrypts, so overlapping lookups break each other.
+        self.ppv_lock = threading.Lock()
         self.closed = threading.Event()
         self.gui_players = []
         self.resolver_owned = False
@@ -2482,7 +2484,8 @@ class App:
                 return url, {}
         if feed.kind == 'ppv':
             self.ensure_helper()
-            data = request(RESOLVER + '/api/embed', data={'iframe':feed.url}, timeout=35)
+            with self.ppv_lock:
+                data = request(RESOLVER + '/api/embed', data={'iframe':feed.url}, timeout=35)
             url = data.get('proxiedUrl', '')
             if not data.get('ok') or not safe_url(url):
                 raise RuntimeError(data.get('error', 'No playable URL returned'))
