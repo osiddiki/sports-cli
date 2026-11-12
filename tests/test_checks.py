@@ -206,3 +206,25 @@ class FakeScreen:
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class PpvCheckTests(unittest.TestCase):
+    """PPV sources are checked through the local helper once it is set up, so an HD one can rank first."""
+    def test_ppv_is_checked_and_ranked_by_its_picture_when_the_helper_is_ready(self):
+        app = nba.App(None, {}); self.addCleanup(app.close)
+        app.mode = 'feeds'; app.feed_generation = 1
+        ppv = nba.Feed('PPV', 'HD | Home', url='https://example.invalid/embed/nba/x', kind='ppv')
+        other = nba.Feed('Site', 'stream', url='https://example.invalid/a.m3u8', kind='direct')
+        app.feeds = [other, ppv]
+        with patch.object(app, 'ppv_ready', return_value=True), \
+             patch.object(app, 'resolve_feed', return_value=('http://127.0.0.1:38765/api/hls?u=x', {})), \
+             patch.object(nba.grading, 'inspect_stream', return_value={'height': 1080, 'speed': 5}), \
+             patch.object(nba, 'quick_probe_feed', return_value={'height': 540, 'speed': 6}), \
+             patch.object(app.check_cache, 'get', return_value=None):
+            app.start_auto_checks(1, app.feeds)
+            for _ in range(100):
+                app.poll_auto_checks()
+                if all(app.auto_checks.get(id(f)) == 'OK' for f in app.feeds): break
+                time.sleep(.02)
+        self.assertEqual(app.auto_heights.get(id(ppv)), 1080)
+        self.assertIs(app.visible_feeds()[0], ppv)

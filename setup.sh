@@ -3,11 +3,22 @@ set -eu
 cd "$(dirname "$0")"
 commit=0f91ece96dc33cfda83948264948452bc988bb54
 python=${PYTHON:-python3}
+# Use the first Node.js on PATH that starts: a Homebrew upgrade can leave one that cannot load its libraries.
+node_dir= node_major= node_seen=
+old_ifs=$IFS; IFS=:
+for dir in $PATH; do
+  [ -n "$dir" ] && [ -x "$dir/node" ] || continue
+  node_seen=1
+  if major=$("$dir/node" -p "Number(process.versions.node.split('.')[0])" 2>/dev/null); then
+    node_dir=$dir node_major=$major; break
+  fi
+done
+IFS=$old_ifs
 if [ "${SPORTS_CLI_SKIP_RESOLVER:-0}" = 1 ]; then
   echo 'Skipping the PPV resolver; everything else works without it.'
-elif ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+elif [ -z "$node_seen" ] || { [ -n "$node_dir" ] && ! PATH="$node_dir:$PATH" command -v npm >/dev/null 2>&1; }; then
   echo 'Node.js (20+) and npm not found; skipping the PPV resolver. Everything else works without it.' >&2
-elif ! node_major=$(node -p "Number(process.versions.node.split('.')[0])" 2>/dev/null); then
+elif [ -z "$node_dir" ]; then
   echo 'Node.js is installed but does not start; skipping the PPV resolver. Everything else works without it.' >&2
 elif [ "$node_major" -lt 20 ]; then
   echo 'Node.js is older than 20; skipping the PPV resolver. Install Node.js 20 or newer for PPV sources.' >&2
@@ -17,7 +28,7 @@ else
     git clone https://github.com/Lunatic16/ppv-hls-proxy.git resolver
     git -C resolver checkout --detach "$commit"
   fi
-  npm install --prefix resolver --ignore-scripts --no-audit --no-fund
+  PATH="$node_dir:$PATH" npm install --prefix resolver --ignore-scripts --no-audit --no-fund
 fi
 if command -v "$python" >/dev/null 2>&1 && "$python" -m pip --version >/dev/null 2>&1; then
   if ! "$python" -m pip install --quiet --disable-pip-version-check --no-cache-dir --upgrade --target .deps -r sportscli/requirements.txt; then

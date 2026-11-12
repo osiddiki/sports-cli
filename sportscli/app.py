@@ -6,6 +6,7 @@ import curses
 import io
 import concurrent.futures
 import datetime as dt
+import functools
 import http.client
 import json
 import os
@@ -844,6 +845,19 @@ def iina_command(executable, url, headers=None, *, cache=15):
     return cmd
 
 
+@functools.lru_cache(maxsize=1)
+def working_node():
+    """The first Node.js on PATH that starts. A Homebrew upgrade can leave one that cannot load its libraries."""
+    for directory in os.environ.get('PATH', '').split(os.pathsep):
+        candidate = directory and shutil.which('node', path=directory)
+        if not candidate: continue
+        try:
+            if subprocess.run([candidate, '-v'], capture_output=True, timeout=5).returncode == 0: return candidate
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return None
+
+
 def setup_hint(problem, option, otherwise, *, running=True):
     """How to fix a missing piece: the installer's command when it installed the app, else the manual message."""
     command = os.environ.get('SPORTS_CLI_COMMAND')
@@ -1152,7 +1166,7 @@ class App:
     def ppv_ready(self):
         directory = self.config.get('resolver_dir') or os.environ.get('NBA_RESOLVER_DIR', '') or str(pathlib.Path(__file__).resolve().parent.parent / 'resolver')
         entry = pathlib.Path(directory).expanduser() / 'src/server.js'
-        return entry.is_file() and (entry.parent.parent / 'node_modules').is_dir() and bool(shutil.which('node'))
+        return entry.is_file() and (entry.parent.parent / 'node_modules').is_dir() and bool(working_node())
 
     def source_views(self, feeds):
         """Sources as listed: Stream 1, Stream 2 in rank order (the number also plays it), the best working one marked
@@ -2274,7 +2288,8 @@ class App:
             if entry.speed is not None: self.auto_speeds[id(feed)] = entry.speed
         # Check every source the app can sample, so dead ones drop out and the smooth ones rise.
         room = max(0, AUTO_CHECKS_PER_SCREEN - self.auto_started)
-        chosen = [feed for feed in unchecked if feed.kind in ('sf', 'direct', 'candidate')][:min(AUTO_CHECKS_PER_DIRECTORY, room)]
+        sampled = ('sf', 'direct', 'candidate', 'ppv') if self.ppv_ready() else ('sf', 'direct', 'candidate')
+        chosen = [feed for feed in unchecked if feed.kind in sampled][:min(AUTO_CHECKS_PER_DIRECTORY, room)]
         self.auto_started += len(chosen)
         for feed in chosen:
             self.auto_checks[id(feed)] = 'checking'
@@ -2293,7 +2308,8 @@ class App:
             if generation != self.feed_generation: continue
             height = speed = None
             try:
-                result = quick_probe_feed(feed)
+                # PPV goes through the local helper, which only this app's state can start.
+                result = grading.inspect_stream(*self.resolve_feed(feed), quick=True) if feed.kind == 'ppv' else quick_probe_feed(feed)
                 status = 'OK' if result else 'n/a'
                 if isinstance(result, dict): height, speed = result.get('height'), result.get('speed')
             except urllib.error.HTTPError as exc:
@@ -2397,11 +2413,11 @@ class App:
                 if not directory:
                     raise DependencyError('Set up the resolver and press d to select its folder; see README.')
                 entry = pathlib.Path(directory).expanduser() / 'src/server.js'
-                if not entry.is_file() or not (entry.parent.parent / 'node_modules').is_dir() or not shutil.which('node'):
+                if not entry.is_file() or not (entry.parent.parent / 'node_modules').is_dir() or not working_node():
                     raise DependencyError(setup_hint('PPV sources need a one-time setup', '--setup-ppv',
                                                      'Resolver, its dependencies or Node.js missing; see README.'))
                 env = os.environ.copy(); env.update({'HOST':'127.0.0.1', 'PORT':'38765', 'NODE_USE_ENV_PROXY':'1'})
-                self.helper = subprocess.Popen(['node', str(entry.resolve())], cwd=str(entry.parent.parent), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.helper = subprocess.Popen([working_node(), str(entry.resolve())], cwd=str(entry.parent.parent), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 self.resolver_owned = True
             helper = self.helper
         for _ in range(35):

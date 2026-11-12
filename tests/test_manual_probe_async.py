@@ -148,7 +148,7 @@ class ManualProbeTests(unittest.TestCase):
                 try: self.app.ensure_helper()
                 except Exception as exc: errors.append(exc)
             with patch.object(self.app, 'helper_running', side_effect=ready.is_set), \
-                 patch.object(nba.shutil, 'which', return_value='/usr/bin/node'), \
+                 patch.object(nba, 'working_node', return_value='/usr/bin/node'), \
                  patch.object(nba.subprocess, 'Popen') as launch:
                 launch.return_value.poll.return_value = None
                 workers = [threading.Thread(target=resolve) for _ in range(2)]
