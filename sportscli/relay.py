@@ -79,9 +79,10 @@ class _Pool:
                     data = response.read(limit + 1)
                 except (http.client.HTTPException, OSError) as exc:
                     connection.close()
-                    # An idle keep-alive connection may have been closed by the server.
-                    if not fresh: fresh = True; continue
-                    if isinstance(exc, (TimeoutError, socket.timeout)): raise TimeoutError(str(exc)) from exc
+                    timed_out = isinstance(exc, (TimeoutError, socket.timeout))
+                    # An idle keep-alive connection may have been closed by the server; that fails at once, never by timing out.
+                    if not fresh and not timed_out: fresh = True; continue
+                    if timed_out: raise TimeoutError(str(exc)) from exc
                     raise urllib.error.URLError(exc) from exc
                 break
             if len(data) > limit or response.will_close: connection.close()
@@ -234,7 +235,7 @@ class Merged:
         # Each source: page URL, headers, resolved media playlist URL, last playlist, health.
         self.sources = [{'url':url, 'headers':headers or {}, 'media':None, 'playlist':None,
                          'advanced':time.monotonic(), 'newest':None, 'failures':0,
-                         'pace':[], 'lagging':None, 'up':None} for url, headers in sources]
+                         'pace':[], 'lagging':None, 'up':None, 'checked':None} for url, headers in sources]
         self.active = 0
         self.timeline = merge.Timeline()
         self.cache = {}; self.cache_bytes = 0
@@ -273,14 +274,17 @@ class Merged:
         if playlist.endlist: raise merge.Unsupported('not a live playlist')
         newest = playlist.segments[-1].seq if playlist.segments else None
         if newest != source['newest']: source['advanced'] = time.monotonic(); source['newest'] = newest
-        source['playlist'] = playlist; source['failures'] = 0
+        source['playlist'] = playlist; source['failures'] = 0; source['checked'] = time.monotonic()
         return playlist
 
     def healthy(self, index):
         source = self.sources[index]; playlist = source['playlist']
         if playlist is None or source['failures'] >= 2: return False
         # Fail over before the player's buffer runs out; a healthy backup makes switching cheap.
-        return time.monotonic() - source['advanced'] < max(3, 1.5 * playlist.target + .5)
+        # A backup is judged as of its last reload: a slow download on the active source can hold up
+        # reloads for longer than the window, and a backup must not look stalled for that.
+        seen = time.monotonic() if index == self.active else source['checked']
+        return seen - source['advanced'] < max(3, 1.5 * playlist.target + .5)
 
     def prepare(self):
         """Check each source once; return how many can be merged. The primary must work.
@@ -353,6 +357,9 @@ class Merged:
                 self.active = candidate; self.switches += 1; self.sources[candidate]['pace'] = []
                 return True
         return False
+
+    def backup_ready(self):
+        return any(self.healthy(index) for index in range(len(self.sources)) if index != self.active)
 
     def lagged(self, index, now):
         lagging = self.sources[index]['lagging']
@@ -436,8 +443,8 @@ class Merged:
             candidates = [] if data else [(source, segment.url), *self.alternates(segment)]
             for owner, url in candidates:
                 try:
-                    # One try on the active source when a mirror can serve the same segment.
-                    attempts = 1 if owner is source and len(candidates) > 1 else 2
+                    # One try on the active source when a mirror or a working backup can take over.
+                    attempts = 1 if owner is source and (len(candidates) > 1 or self.backup_ready()) else 2
                     data = _media(self.fetch(url, owner['headers'], timeout, attempts=attempts))
                     break
                 except (OSError, ValueError, urllib.error.URLError):

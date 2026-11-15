@@ -44,6 +44,7 @@ Read every result, pass or fail, with the pstack `/statechart` skill: `RelayFail
 python3 verification/relay/drill.py --mpv     # about a minute; needs ffmpeg and mpv
 python3 verification/relay/drill.py --only "other encoder" --trace
 ```
+Add `--segment 6` to run at broadcast segment length; the slow, hang and every-third-slow faults only show stalls there.
 
 It runs the real relay against two local live sources, breaks the primary mid-stream, and reports
 seconds repeated, seconds skipped, the longest wait and mpv stalls. Expect zero repeats and skips
@@ -64,4 +65,4 @@ The model is in `verification/relay/RelayFailover.tla`; its header maps each act
 
 `BackupChoice.tla` covers `Merged.prepare`, `best_backup`, `shares_timeline` and `clock` as of commit **b597346**. Bounds: three backups, a deadline of two ticks. It leaves out the time the comparison's segment downloads take (each has its own 15 s timeout, outside the deadline), playlist parsing, and everything after the stream starts.
 
-`RelayFailover.tla` covers `sportscli/merge.py` (Timeline, realign) and `sportscli/relay.py` (Merged.pump, align, switch, steer, healthy) as of commit **7362cbe** plus `steer`: leaving a source slower than real time maps to Fail, and returning to the chosen source from a same-clock backup is the Return action. Leaves out: segment downloads and retries other than skip, playlist parsing, encryption and init maps (the relay refuses those streams), more than two sources, and timing beyond segment order. Bounds: 6 segments, backup 1 segment behind. Move the sync commit forward only after confirming the model's actions still describe the code at the new commit. Diagrams and the summary for readers live in `docs/relay-failover.md`.
+`RelayFailover.tla` covers `sportscli/merge.py` (Timeline, realign) and `sportscli/relay.py` (Merged.pump, align, switch, steer, healthy) as of commit **7362cbe** plus `steer`: leaving a source slower than real time maps to Fail, and returning to the chosen source from a same-clock backup is the Return action. Judging a backup by its last reload (`healthy`) and giving the active source one try when a backup is ready change only when Fail happens, not what it does. Leaves out: segment downloads and retries other than skip, playlist parsing, encryption and init maps (the relay refuses those streams), more than two sources, and timing beyond segment order. Bounds: 6 segments, backup 1 segment behind. Move the sync commit forward only after confirming the model's actions still describe the code at the new commit. Diagrams and the summary for readers live in `docs/relay-failover.md`.

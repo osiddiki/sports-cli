@@ -41,7 +41,7 @@ HEAD_START = 8
 
 
 def encode(directory, *, skip=0.0, ts_offset=0, bitrate='600k'):
-    """Cut the test pattern into 2 s transport-stream segments; return [(file, content_start, duration)]."""
+    """Cut the test pattern into SEGMENT-second transport-stream segments; return [(file, content_start, duration)]."""
     directory.mkdir(parents=True, exist_ok=True)
     command = ['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=25',
                '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000', '-t', str(CONTENT_SECONDS + skip)]
@@ -61,9 +61,14 @@ def encode(directory, *, skip=0.0, ts_offset=0, bitrate='600k'):
 
 class Feed:
     """One live source: publishes a segment every SEGMENT seconds, `delay` segments behind the real broadcast."""
+    # Seconds each segment request waits once the fault starts, by how many it has served since.
+    DELAYS = {'slow': lambda count: 1.5 * SEGMENT,
+              'hang': lambda count: 5 * SEGMENT if count == 1 else 0,
+              'hiccups': lambda count: 1.6 * SEGMENT if count % 3 == 0 else 0}
     def __init__(self, segments, names, delay, started):
         self.segments, self.names, self.delay, self.started = segments, names, delay, started
         self.fault, self.fault_at, self.frozen_at = None, None, None
+        self.served, self.lock = 0, threading.Lock()
         self.by_name = {name: path for name, (path, _, _) in zip(names, segments)}
         feed = self
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -93,6 +98,9 @@ class Feed:
         name = path.rsplit('/', 1)[-1]
         if name not in self.by_name: return 404, b'missing'
         if self.fault == 'segments' and self.fault_at is not None and now >= self.fault_at: return 404, b'gone'
+        if self.fault_at is not None and now >= self.fault_at and self.fault in self.DELAYS:
+            with self.lock: self.served += 1; count = self.served
+            time.sleep(self.DELAYS[self.fault](count))
         return 200, self.by_name[name].read_bytes()
 
     def break_at(self, mode, when):
@@ -115,6 +123,12 @@ SCENARIOS = [
     Scenario('other encoder, primary frozen', 'encoder', 'frozen'),
     Scenario('other encoder, backup 3 segments behind, primary down', 'encoder', 'down', delay=3),
     Scenario('other encoder listed first, same stream second, primary down', ['encoder', 'same'], 'down'),
+    Scenario('same stream, primary slower than real time', 'same', 'slow'),
+    Scenario('same stream, one primary segment hangs', 'same', 'hang'),
+    Scenario('same stream, every third primary segment slow', 'same', 'hiccups'),
+    Scenario('other encoder, primary slower than real time', 'encoder', 'slow'),
+    Scenario('other encoder, one primary segment hangs', 'encoder', 'hang'),
+    Scenario('other encoder, every third primary segment slow', 'encoder', 'hiccups'),
 ]
 
 
@@ -225,6 +239,7 @@ def run(scenario, media, seconds, fault_at, with_mpv, trace=False):
 
 
 def main():
+    global SEGMENT, CONTENT_SECONDS
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--only', default='', help='run scenarios whose name contains this text')
     parser.add_argument('--seconds', type=int, default=50, help='how long each scenario runs (default 50)')
@@ -232,7 +247,10 @@ def main():
     parser.add_argument('--mpv', action='store_true', help='also play each merged stream in headless mpv')
     parser.add_argument('--trace', action='store_true', help='list every segment the player was offered')
     parser.add_argument('--json', action='store_true', help='print results as JSON')
+    parser.add_argument('--segment', type=float, default=SEGMENT, help='segment length in seconds (default 2; broadcasts use about 6)')
     args = parser.parse_args()
+    SEGMENT = args.segment
+    CONTENT_SECONDS = max(CONTENT_SECONDS, int(HEAD_START * SEGMENT + args.seconds + 30))
     for tool in ('ffmpeg',) + (('mpv',) if args.mpv else ()):
         if not shutil.which(tool): sys.exit(f'{tool} is required')
     chosen = [s for s in SCENARIOS if args.only.lower() in s.name.lower()]

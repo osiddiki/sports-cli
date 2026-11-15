@@ -233,6 +233,30 @@ class MergeTest(unittest.TestCase):
         self.assertIn('b', ''.join(name[0] for name in committed))
         self.assertEqual(committed[-1][0], 'a')
 
+    def test_a_backup_not_reloaded_during_a_slow_download_still_takes_over(self):
+        server = relay.Relay()
+        state = {'slow': False, 'newest': 8}
+        def fetch(url, *args, **kwargs):
+            name = 'a' if 'primary' in url else 'b'
+            if url.endswith('.m3u8'): return ('\n'.join(['#EXTM3U', '#EXT-X-TARGETDURATION:6', '#EXT-X-MEDIA-SEQUENCE:0'] +
+                                       [f'#EXTINF:6,\n{name}{n:03d}.ts' for n in range(state['newest'])]) + '\n').encode()
+            if name == 'a' and state['slow']: raise TimeoutError('segment timed out')
+            return ts_with_pts(int(url[-6:-3]) * 540000)
+        try:
+            session = self.merged(fetch, server)
+            with patch.object(relay, '_download', side_effect=fetch):
+                session.pump()
+                # Downloads on the primary held up the backup's playlist reloads for 30 s; it was live when last seen.
+                backup = session.sources[1]
+                backup['advanced'] -= 30
+                if backup.get('checked') is not None: backup['checked'] -= 30
+                state['slow'] = True; state['newest'] += 2
+                session.load(0)
+                session.pump()
+            self.assertEqual(session.active, 1)
+        finally:
+            server.close()
+
     def test_relay_stays_on_a_backup_whose_clock_differs_from_the_chosen_source(self):
         # Another encoder: returning could repeat or skip a few seconds, so the relay keeps the backup.
         session, _ = self.drive_blip(backup_offset=500 * 90000)
@@ -394,6 +418,30 @@ class RelayServerTests(unittest.TestCase):
         finally:
             server.close()
         self.assertEqual(errors.getvalue(), '')
+
+
+    def test_a_request_that_times_out_on_a_kept_alive_connection_is_not_sent_again(self):
+        import http.server, threading, time
+        served = []
+        class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = 'HTTP/1.1'
+            def log_message(self, *args): pass
+            def do_GET(self):
+                served.append(self.path)
+                if len(served) > 1: time.sleep(2)
+                self.send_response(200); self.send_header('Content-Length', '2'); self.end_headers(); self.wfile.write(b'ok')
+        origin = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler); origin.daemon_threads = True
+        threading.Thread(target=origin.serve_forever, daemon=True).start()
+        pool = relay._Pool()
+        url = f'http://127.0.0.1:{origin.server_port}/seg.ts'
+        try:
+            pool.request(url, {}, 1, 100)
+            started = time.monotonic()
+            with self.assertRaises(TimeoutError): pool.request(url, {}, .5, 100)
+            self.assertLess(time.monotonic() - started, .9)
+            self.assertEqual(len(served), 2)
+        finally:
+            pool.close(); origin.shutdown(); origin.server_close()
 
 
 if __name__ == '__main__':

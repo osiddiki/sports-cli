@@ -33,6 +33,15 @@ On a live NBA game (2026-11-04, StreamFree 1080p with its 540p copy as backup), 
 real time used to stall mpv about 10 s in 75 s with no switch, and a 15 s outage left playback on 540p for
 the rest of the game. With `steer()` both switch without a stall, repeat or skip.
 
+Broadcasts use about 6 s segments, and the relay's timeouts grow with them. At that length (`drill.py
+--segment 6`) a primary slower than real time used to stall mpv for 37 s with a same-stream backup and
+103 s with another encoder's, because two things held the switch back. A timed-out request on a kept-alive
+connection was sent again, so every timeout cost double. And while one slow download held up the loop,
+the backup's playlist went unreloaded, so `healthy()` judged it stalled and `switch()` refused it. Now a
+timeout is never resent, a backup is judged as of its last reload, and the active source gets one try per
+segment when a backup is ready. Every 6 s scenario below plays with no mpv stall. With another encoder as
+backup, one hung segment now switches and replays about 5 s, where a second try used to get through.
+
 ## End-to-end drill and a live game
 
 `verification/relay/drill.py` cuts a test stream, serves it as two live HLS sources on localhost,
@@ -49,6 +58,17 @@ Segment contents are known from how they were cut, so the numbers are in seconds
 | Other encoder | freezing | 0 s | 0.8 s | 4.1 s | 0 |
 | Other encoder, 3 segments behind | going down | 5.2 s | 0 s | 2.0 s | 0 |
 | Other encoder listed first, same stream second | going down | 0 s | 0 s | 2.5 s | 0 |
+
+With 6 s segments (`--segment 6 --fault-at 30 --seconds 150 --mpv`, two runs on 2026-11-15):
+
+| Backup is | Primary fails by | Repeated | Longest wait | mpv stalls before | mpv stalls now |
+|---|---|---|---|---|---|
+| Same stream | slower than real time | 0 s | 9.5 s | 2, 37 s | 0 |
+| Same stream | one segment hanging 30 s | 0 s | 9.5 s | 0 | 0 |
+| Same stream | every third segment slow | 0 s | 15 s | 0 | 0 |
+| Other encoder | slower than real time | 5.2 s | 9.5 s | 1, 103 s | 0 |
+| Other encoder | one segment hanging 30 s | 5.2 s | 9.5 s | 0 | 0 |
+| Other encoder | every third segment slow | 5.2 s | 15 s | 0 | 0 |
 
 Playback never froze in any case. When the sources share a clock the switch is invisible. With
 another encoder the relay keeps the live-edge distance, so the viewer sees 1 to 5 s repeat or a
