@@ -232,6 +232,25 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(result['channel'], 'premium982')
         self.assertFalse(providers.public_url('http://127.0.0.1/private'))
 
+    def test_a_player_whose_streams_come_from_its_event_api_is_followed(self):
+        pages = {
+            'https://site.example/match.php?id=abc': '<div id="player"></div><script src="/assets/match.js?v=1" defer></script>',
+            'https://site.example/api.php?action=event&id=abc': '{"event":{},"streams":[{"label":"nba1","url":"https://tv.example/go/nba1"}]}',
+            'https://tv.example/go/nba1': 'player.load("https://cdn.example/live/nba1.m3u8")',
+        }
+        with patch.object(providers, 'fetch_html', side_effect=lambda url, *a, **kw:(pages[url], url)):
+            result = providers.extract_player('https://site.example/match.php?id=abc')
+        self.assertEqual((result['kind'], result['url']), ('direct', 'https://cdn.example/live/nba1.m3u8'))
+
+    def test_quick_check_finds_a_player_as_deep_as_playback_does(self):
+        pages = {f'https://hop{n}.example/': f'<iframe src="https://hop{n+1}.example/"></iframe>' for n in range(4)}
+        pages['https://hop4.example/'] = 'var src = "https://cdn.example/deep/index.m3u8";'
+        feed = nba.Feed('Site', 'Deep', url='https://hop0.example/', kind='candidate')
+        with patch.object(providers, 'fetch_html', side_effect=lambda url, *a, **kw:(pages[url], url)), \
+             patch.object(nba.grading, 'inspect_stream', return_value={'height': 720, 'speed': 3}) as inspect:
+            self.assertEqual(nba.quick_probe_feed(feed), {'height': 720, 'speed': 3})
+        self.assertEqual(inspect.call_args.args[0], 'https://cdn.example/deep/index.m3u8')
+
     def test_json_escaped_playlist_keeps_its_query(self):
         page = ('<div data-options="{&quot;hlsManifestUrl&quot;:&quot;https:\\/\\/cdn.example\\/video.m3u8'
                 '?cmd=x\\u0026expires=1\\u0026sig=abc&quot;}"></div>')

@@ -906,7 +906,8 @@ def quick_probe_feed(feed):
         elif feed.kind == 'direct':
             url, headers = feed.url, feed.headers
         elif feed.kind == 'candidate':
-            found = providers.extract_player(feed.url, max_pages=3,
+            # Follow as many pages as playback does, or a player nested deeper is hidden although it plays.
+            found = providers.extract_player(feed.url,
                                              referer=feed.metadata.get('referer'), timeout=4)
             if found['kind'] == 'relay':
                 temporary_relay = relay.Relay()

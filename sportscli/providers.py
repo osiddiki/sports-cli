@@ -229,6 +229,16 @@ def extract_player(start_url, max_pages=8, referer=None, *, timeout=15):
             candidate=urllib.parse.urljoin(final,m.group(0))
             if public_url(candidate):
                 return {'kind':'direct','url':candidate,'referer':final}
+        if re.search(r'<script[^>]+src=["\'][^"\']*/match\.js',page):
+            # This player's match.js asks /api.php for the event's streams; ask it the same way.
+            ident=urllib.parse.parse_qs(urllib.parse.urlsplit(final).query).get('id',[''])[0]
+            if ident:
+                try:
+                    body,_=fetch_html(urllib.parse.urljoin(final,'/api.php?action=event&id='+urllib.parse.quote(ident)),final,timeout=timeout)
+                    streams=json.loads(body).get('streams') or []
+                    queue+=[(item['url'],final) for item in streams[:6] if isinstance(item,dict) and isinstance(item.get('url'),str)]
+                except (OSError,ValueError,AttributeError) as exc:
+                    errors.append(type(exc).__name__)
         parser=EmbedParser(); parser.feed(page)
         for child in parser.urls[:12]:
             target=urllib.parse.urljoin(final, html.unescape(child))
