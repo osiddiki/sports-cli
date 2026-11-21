@@ -241,7 +241,12 @@ def start(config, host='0.0.0.0', port=PORT):
         def do_GET(self):
             parts = urllib.parse.urlsplit(self.path)
             prefix = f'/{token}/'
-            if not parts.path.startswith(prefix) and parts.path != f'/{token}':
+            if parts.path == f'/{token}':
+                # The page fetches relative paths (api/..., p/...), which only keep the token under /<token>/.
+                # Served at /<token>, every fetch lost the token and got a 404 page: blank Sports, "Bad reply" on TV.
+                self.send_response(301); self.send_header('Location', prefix + (f'?{parts.query}' if parts.query else ''))
+                self.send_header('Content-Length', '0'); self.end_headers(); return
+            if not parts.path.startswith(prefix):
                 return self.reply(404, b'Not found', 'text/plain')
             path, query = parts.path[len(prefix):], dict(urllib.parse.parse_qsl(parts.query, keep_blank_values=True))
             try:

@@ -1,6 +1,6 @@
 ---
 name: verify-sports-cli
-description: Drive the Sports CLI terminal app (./sports-cli, a curses TUI) in a pseudo-terminal like a user and save screen evidence. Use to prove a change to screens, keys, sources, replays, live TV, settings toggles or mpv playback works in the real app, not just in unit tests.
+description: Drive the Sports CLI terminal app (./sports-cli, a curses TUI) in a pseudo-terminal, and its --web phone page in iPhone WebKit and desktop Chromium, like a user and save evidence. Use to prove a change to screens, keys, sources, replays, live TV, settings toggles, mpv playback or the phone page works in the real app, not just in unit tests.
 ---
 
 # Verify Sports CLI
@@ -20,6 +20,8 @@ The first run creates `~/.cache/sports-cli-verify/venv` with the `pyte` terminal
 Steps: `key:NAME` (Enter, Esc, Tab, Space, Backspace, Up, Down, Ctrl-F, Ctrl-X or one character), `type:TEXT`, `wait:SECONDS`, `expect:REGEX` (waits up to 20 s; the run fails if it never matches), `shot:LABEL`.
 
 Non-interactive features need no driver: `python3 sports-cli --list --league nba` and `python3 sports-cli --list --tv`.
+
+The phone page (`--web`) has its own browser driver, `scripts/web_drive.py`. It starts a local `--web` with a throwaway token (or drives a running one with `--url-file`) and walks Home, every league, a game's sources, Play, TV and the no-slash link on iPhone WebKit (`devices['iPhone 14 Pro']`) and desktop Chromium. Both engines are required; any console error or empty Home while `api/games` has games fails the run. See [features/web.md](features/web.md).
 
 ## Doctor
 
@@ -71,5 +73,6 @@ The driver ends the copy it started (q, then SIGTERM to that process id only) an
 
 - `scripts/drive.py`: the pseudo-terminal driver above. `scripts/drive.py --help` prints the step syntax.
 - `scripts/doctor.sh`: the readiness check above.
+- `scripts/web_drive.py`: the phone-page browser driver above. `scripts/web_drive.py --help` lists its steps.
 
 Feature map: [features/README.md](features/README.md).

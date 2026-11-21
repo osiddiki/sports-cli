@@ -1,5 +1,7 @@
+import http.client
 import threading
 import unittest
+from unittest import mock
 
 from sportscli import app, web
 
@@ -39,6 +41,30 @@ class ListingTests(unittest.TestCase):
         self.assertTrue(rows[1]['status'].startswith('May lag'))
         self.assertEqual(sum(not row['hidden'] for row in rows), web.MIN_VISIBLE)
         self.assertTrue(all(row['failed'] for row in rows[2:]))
+
+
+class TokenPathTests(unittest.TestCase):
+    """The link must work with or without the slash after the token (people type it either way)."""
+    def setUp(self):
+        with mock.patch.object(web, 'addresses', return_value=['localhost']), mock.patch.object(web, 'Web'):
+            self.server, _, _ = web.start({'web_token': 'secret'}, '127.0.0.1', 0)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close); self.addCleanup(self.server.shutdown)
+
+    def get(self, path):
+        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_address[1], timeout=5)
+        connection.request('GET', path); response = connection.getresponse()
+        return response.status, response.getheader('Location'), response.read()
+
+    def test_link_without_trailing_slash_redirects_so_relative_api_paths_keep_the_token(self):
+        self.assertEqual(self.get('/secret')[:2], (301, '/secret/'))
+        self.assertEqual(self.get('/secret?x=1')[:2], (301, '/secret/?x=1'))
+        status, _, body = self.get('/secret/')
+        self.assertEqual(status, 200); self.assertIn(b'<title>Sports CLI</title>', body)
+
+    def test_paths_without_the_token_are_refused(self):
+        self.assertEqual(self.get('/api/leagues')[0], 404)
+        self.assertEqual(self.get('/secretX/')[0], 404)
 
 
 if __name__ == '__main__':

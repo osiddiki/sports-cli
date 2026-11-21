@@ -24,6 +24,9 @@ if touches '^sportscli/(app|remote|screens|replays|tv|web)\.py|^\.claude/skills/
     .claude/skills/walk-sports-cli/walks/schedule.walk
   run app-recipes env RUN="$LOG/recipes" .claude/skills/verify-sports-cli/scripts/run_all.sh
 fi
+if touches '^sportscli/(web|app)\.py|^\.claude/skills/verify-sports-cli/scripts/web_drive\.py'; then
+  run web-page .claude/skills/verify-sports-cli/scripts/web_drive.py --out "$LOG/web"
+fi
 if touches '^(install|uninstall|setup)\.(sh|ps1)$|^installers/|^\.gitattributes$|^\.claude/skills/verify-install/'; then
   run install env VERIFY_INSTALL_OUT="$LOG/install" .claude/skills/verify-install/scripts/drive.sh
 fi
