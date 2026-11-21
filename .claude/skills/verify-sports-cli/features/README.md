@@ -31,3 +31,4 @@ This folder is the maintained list of user-facing features and how to prove each
 | playback | [playback.md](playback.md) | Real resolve-and-play through mpv for a TV channel and a game |
 | replays | [replays.md](replays.md) | Replay archive, sources |
 | cli-list | [cli-list.md](cli-list.md) | `--list` and `--list --tv` plain output |
+| web | [web.md](web.md) | `--web` phone page on iPhone WebKit and desktop Chromium: games, sources, TV, Play, the no-slash link |
